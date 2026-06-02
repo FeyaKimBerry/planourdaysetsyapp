@@ -1374,6 +1374,167 @@ function OptionEditor({ title, listKey, items, onAdd, onRename, onRemove }) {
 }
 
 /* ============================================================
+   PDF EXPORT
+   ------------------------------------------------------------
+   Dependency-free: we build a print-optimized HTML document for
+   the whole plan and hand it to the browser's print dialog, where
+   "Save as PDF" is available on every platform. Keeping it library-
+   free matches the rest of the app (React + nothing else).
+   ============================================================ */
+
+// Escape user-entered text before it goes into the print document.
+function esc(v) {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function buildPlannerHtml(state) {
+  const names =
+    state.partner1 && state.partner2
+      ? `${state.partner1} & ${state.partner2}`
+      : state.partner1 || state.partner2 || "Our Wedding";
+  const dateLabel = state.weddingDate
+    ? new Date(state.weddingDate + "T00:00:00").toLocaleDateString(undefined, {
+        weekday: "long", year: "numeric", month: "long", day: "numeric",
+      })
+    : "Date to be decided";
+
+  // ---- Budget ----
+  const totalSpent = state.categories.reduce((s, c) => s + catSpent(c), 0);
+  const remaining = state.total - totalSpent;
+  const budgetRows = state.categories
+    .map((c) => {
+      const spent = catSpent(c);
+      const expenses = c.expenses
+        .map(
+          (e) =>
+            `<div class="sub">${esc(e.desc) || "Expense"} — ${esc(fmt(e.amount))} <span class="muted">(${e.paid ? "Paid" : "Upcoming"}${e.date ? ` · ${esc(e.date)}` : ""})</span></div>`
+        )
+        .join("");
+      return `<tr><td><strong>${esc(c.name)}</strong>${expenses}</td><td class="num">${esc(fmt(spent))}</td><td class="num muted">${esc(fmt(c.allocated))}</td></tr>`;
+    })
+    .join("");
+
+  // ---- Checklist ----
+  const checklistHtml = state.checklist
+    .map((b) => {
+      const done = b.tasks.filter((t) => t.done).length;
+      const items = b.tasks
+        .map(
+          (t) =>
+            `<li class="${t.done ? "done" : ""}">${t.done ? "☑" : "☐"} ${esc(t.name)}${t.due ? ` <span class="muted">— due ${esc(t.due)}</span>` : ""}${t.note ? `<div class="note">${esc(t.note)}</div>` : ""}</li>`
+        )
+        .join("");
+      return `<div class="block"><h3>${esc(b.label)} <span class="muted">(${done}/${b.tasks.length})</span></h3><ul>${items}</ul></div>`;
+    })
+    .join("");
+
+  // ---- Vendors ----
+  const vendorRows = (state.vendors || [])
+    .map((v) => {
+      const paid = vendorExpenses(state, v.id).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+      const contact = [v.phone, v.email].filter(Boolean).map(esc).join(" · ");
+      return `<tr><td><strong>${esc(v.name)}</strong>${v.type ? `<div class="muted">${esc(v.type)}</div>` : ""}${contact ? `<div class="sub">${contact}</div>` : ""}</td><td>${esc(v.status)}</td><td class="num">${esc(fmt(paid))}${v.contracted > 0 ? ` <span class="muted">/ ${esc(fmt(v.contracted))}</span>` : ""}</td></tr>`;
+    })
+    .join("");
+
+  // ---- Guests ----
+  const heads = headcount(state.guests);
+  const guestRows = (state.guests || [])
+    .map(
+      (g) =>
+        `<tr><td>${esc(g.name) || "Guest"}${Number(g.party) > 1 ? ` <span class="muted">+${g.party - 1}</span>` : ""}</td><td>${esc(g.rsvp)}</td><td>${esc(g.group) || "—"}</td><td>${esc(g.meal) || "—"}</td></tr>`
+    )
+    .join("");
+
+  // ---- Seating ----
+  const guestName = (id) => (state.guests || []).find((g) => g.id === id)?.name || "Unnamed";
+  const seatingHtml = (state.tables || [])
+    .map((t) => {
+      const seated = (t.seated || []).map((gid) => `<li>${esc(guestName(gid))}</li>`).join("");
+      return `<div class="block"><h3>${esc(t.name)} <span class="muted">(${(t.seated || []).length}/${t.capacity})</span></h3><ul>${seated || '<li class="muted">Empty</li>'}</ul></div>`;
+    })
+    .join("");
+
+  const section = (title, body, show = true) =>
+    show ? `<section><h2>${title}</h2>${body}</section>` : "";
+
+  return `<!doctype html><html><head><meta charset="utf-8" />
+<title>${esc(names)} — Wedding Plan</title>
+<style>
+  @page { margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: #3a2e2c; margin: 0; line-height: 1.45; }
+  .cover { text-align: center; padding: 40px 0 28px; border-bottom: 2px solid #e9d3cd; margin-bottom: 28px; }
+  .kicker { text-transform: uppercase; letter-spacing: 0.18em; font-size: 12px; color: #b07a72; }
+  h1 { font-size: 34px; margin: 8px 0 6px; font-weight: 600; }
+  .cover .date { font-size: 16px; color: #6b4a45; }
+  .cover .venue { font-size: 14px; color: #8a6d68; margin-top: 4px; }
+  .vision { font-style: italic; color: #6b4a45; max-width: 460px; margin: 14px auto 0; }
+  section { margin-bottom: 26px; page-break-inside: avoid; }
+  h2 { font-size: 19px; color: #b07a72; border-bottom: 1px solid #f0e2dd; padding-bottom: 5px; margin: 0 0 12px; }
+  h3 { font-size: 14px; margin: 0 0 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { text-align: left; padding: 7px 6px; border-bottom: 1px solid #f2e6e2; vertical-align: top; }
+  th { color: #b58e87; text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
+  .num { text-align: right; white-space: nowrap; }
+  .muted { color: #a98e88; font-weight: normal; }
+  .sub { font-size: 12px; color: #8a6d68; margin-top: 2px; }
+  .note { font-size: 12px; color: #8a6d68; margin-left: 18px; }
+  .block { margin-bottom: 14px; page-break-inside: avoid; }
+  ul { margin: 0; padding-left: 20px; font-size: 13px; }
+  li { margin: 2px 0; }
+  li.done { color: #9c8f8b; }
+  .summary { display: flex; gap: 10px; margin-bottom: 14px; }
+  .stat { flex: 1; border: 1px solid #f0e2dd; border-radius: 8px; padding: 10px; text-align: center; }
+  .stat .big { font-size: 18px; font-weight: 600; }
+  .stat .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #b58e87; }
+  .foot { text-align: center; font-size: 11px; color: #b58e87; margin-top: 30px; }
+</style></head>
+<body>
+  <div class="cover">
+    <div class="kicker">Wedding Plan</div>
+    <h1>${esc(names)}</h1>
+    <div class="date">${esc(dateLabel)}</div>
+    ${state.venue ? `<div class="venue">${esc(state.venue)}</div>` : ""}
+    ${state.vision ? `<div class="vision">“${esc(state.vision)}”</div>` : ""}
+  </div>
+
+  ${section(
+    "Budget",
+    `<div class="summary">
+      <div class="stat"><div class="big">${esc(fmt(state.total))}</div><div class="lbl">Total</div></div>
+      <div class="stat"><div class="big">${esc(fmt(totalSpent))}</div><div class="lbl">Spent</div></div>
+      <div class="stat"><div class="big">${esc(fmt(remaining))}</div><div class="lbl">Remaining</div></div>
+    </div>
+    <table><thead><tr><th>Category</th><th class="num">Spent</th><th class="num">Allocated</th></tr></thead><tbody>${budgetRows}</tbody></table>`
+  )}
+
+  ${section("Checklist", checklistHtml)}
+
+  ${section(
+    "Vendors",
+    `<table><thead><tr><th>Vendor</th><th>Status</th><th class="num">Paid</th></tr></thead><tbody>${vendorRows}</tbody></table>`,
+    (state.vendors || []).length > 0
+  )}
+
+  ${section(
+    "Guests",
+    `<div class="summary"><div class="stat"><div class="big">${heads}</div><div class="lbl">Coming (incl. +1s)</div></div></div>
+    <table><thead><tr><th>Name</th><th>RSVP</th><th>Group</th><th>Meal</th></tr></thead><tbody>${guestRows}</tbody></table>`,
+    (state.guests || []).length > 0
+  )}
+
+  ${section("Seating", `<div class="seating">${seatingHtml}</div>`, (state.tables || []).length > 0)}
+
+  <div class="foot">Created with Planourdays · ${esc(new Date().toLocaleDateString())}</div>
+</body></html>`;
+}
+
+/* ============================================================
    SETTINGS VIEW
    ============================================================ */
 
@@ -1391,6 +1552,23 @@ function SettingsView({ state, update, setState, go, onSignOut }) {
     a.download = `wedding-planner-backup-${stamp}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportPDF = () => {
+    const html = buildPlannerHtml(state);
+    const win = window.open("", "_blank");
+    if (!win) {
+      alert("Please allow pop-ups for this site to export your plan to PDF.");
+      return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    // Wait for fonts/layout before invoking the browser's print → Save as PDF.
+    win.onload = () => {
+      win.focus();
+      win.print();
+    };
   };
 
   const importData = (file) => {
@@ -1435,6 +1613,13 @@ function SettingsView({ state, update, setState, go, onSignOut }) {
           ))}
         </select>
         <div style={S.currencyPreview}>Preview: {fmt(12500)}</div>
+      </section>
+
+      {/* Export to PDF */}
+      <section style={S.dashboard}>
+        <div style={S.smallLabel}>Export to PDF</div>
+        <p style={S.settingHint}>Create a printable PDF of your whole plan — couple details, budget, checklist, vendors, guests and seating. Opens your print dialog; choose “Save as PDF”.</p>
+        <button style={S.settingBtn} onClick={exportPDF}>Export plan to PDF</button>
       </section>
 
       {/* Backup */}
