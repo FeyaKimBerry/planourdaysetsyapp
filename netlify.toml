@@ -2,8 +2,9 @@
   command = "npm run build"
   publish = "dist"
 
-# Single-page app: send all routes to index.html so deep links don't 404.
+# The marketing homepage (index.html) is served at "/".
+# The React app lives in login.html — serve it at the clean URL "/login".
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
+  from = "/login"
+  to = "/login.html"
   status = 200
