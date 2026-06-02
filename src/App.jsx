@@ -1,0 +1,1902 @@
+import React, { useState, useEffect, useCallback } from "react";
+
+/* ============================================================
+   STORAGE ADAPTER LAYER
+   ------------------------------------------------------------
+   The whole app talks ONLY to this `storage` interface:
+       storage.load()  -> state | null
+       storage.save(state)
+   Swapping backends never touches app code. That's the
+   future-proofing — the Google Sheets adapter slots in here.
+
+   STAGE A (now): persist to the browser's localStorage so data
+   survives reloads and revisits on the same device. Falls back
+   to in-memory where localStorage is blocked (sandboxed preview).
+
+   STAGE B (later): const storage = GoogleSheetsAdapter; — same
+   load()/save() shape, data lives in the user's own Sheet.
+   ============================================================ */
+
+const STORAGE_KEY = "wedding-planner-state-v2";
+
+function localStorageAvailable() {
+  try {
+    const t = "__probe__";
+    window.localStorage.setItem(t, "1");
+    window.localStorage.removeItem(t);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const LocalStorageAdapter = {
+  load() {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  },
+  save(state) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {}
+  },
+};
+
+const MemoryAdapter = {
+  load() {
+    return typeof window !== "undefined" ? window.__weddingPlanner || null : null;
+  },
+  save(state) {
+    if (typeof window !== "undefined") window.__weddingPlanner = state;
+  },
+};
+
+const PERSISTS = typeof window !== "undefined" && localStorageAvailable();
+const storage = PERSISTS ? LocalStorageAdapter : MemoryAdapter;
+
+/* ============================================================
+   DEFAULTS
+   ============================================================ */
+
+const DEFAULT_TOTAL = 30000;
+
+const PRESET_CATEGORIES = [
+  { id: "venue", name: "Venue & Rentals", pct: 0.4 },
+  { id: "catering", name: "Catering & Drinks", pct: 0.2 },
+  { id: "photo", name: "Photography & Video", pct: 0.12 },
+  { id: "attire", name: "Attire & Beauty", pct: 0.08 },
+  { id: "flowers", name: "Flowers & Decor", pct: 0.08 },
+  { id: "music", name: "Music & Entertainment", pct: 0.05 },
+  { id: "stationery", name: "Stationery & Favors", pct: 0.04 },
+  { id: "misc", name: "Miscellaneous", pct: 0.03 },
+];
+
+// Time buckets for the checklist, ordered far-out -> the day -> after.
+const CHECKLIST_BUCKETS = [
+  {
+    id: "12mo",
+    label: "12+ Months Before",
+    tasks: [
+      "Set your overall budget",
+      "Draft a rough guest list",
+      "Choose & book your venue",
+      "Pick a wedding date",
+      "Research & shortlist photographers",
+    ],
+  },
+  {
+    id: "9mo",
+    label: "9 Months Before",
+    tasks: [
+      "Book photographer & videographer",
+      "Book caterer / confirm venue catering",
+      "Start dress / attire shopping",
+      "Book entertainment (band or DJ)",
+      "Reserve a block of hotel rooms for guests",
+    ],
+  },
+  {
+    id: "6mo",
+    label: "6 Months Before",
+    tasks: [
+      "Send save-the-dates",
+      "Order invitations",
+      "Book florist",
+      "Plan ceremony details & officiant",
+      "Arrange transportation",
+    ],
+  },
+  {
+    id: "3mo",
+    label: "3 Months Before",
+    tasks: [
+      "Finalize the menu & cake tasting",
+      "Mail invitations",
+      "Buy wedding rings",
+      "Schedule hair & makeup trials",
+      "Write your vows",
+    ],
+  },
+  {
+    id: "1mo",
+    label: "1 Month Before",
+    tasks: [
+      "Confirm final guest count",
+      "Confirm details with all vendors",
+      "Create seating chart",
+      "Final dress fitting",
+      "Apply for marriage license",
+    ],
+  },
+  {
+    id: "1wk",
+    label: "1 Week Before",
+    tasks: [
+      "Give final headcount to caterer",
+      "Pack for the honeymoon",
+      "Prepare vendor final payments & tips",
+      "Confirm day-of timeline with party",
+      "Rehearsal & rehearsal dinner",
+    ],
+  },
+  {
+    id: "after",
+    label: "After the Wedding",
+    tasks: [
+      "Send thank-you cards",
+      "Return any rentals",
+      "Preserve the dress & bouquet",
+      "Review & tip vendors online",
+      "Change name / update documents (if applicable)",
+    ],
+  },
+];
+
+function makeInitialState() {
+  return {
+    partner1: "",
+    partner2: "",
+    weddingDate: "",
+    venue: "",
+    vision: "",
+    photos: [],
+    currency: "AUD",
+    tables: [],
+    total: DEFAULT_TOTAL,
+    categories: PRESET_CATEGORIES.map((c) => ({
+      id: c.id,
+      name: c.name,
+      allocated: Math.round(DEFAULT_TOTAL * c.pct),
+      expenses: [],
+    })),
+    checklist: CHECKLIST_BUCKETS.map((b) => ({
+      id: b.id,
+      label: b.label,
+      tasks: b.tasks.map((name) => ({
+        id: uid(),
+        name,
+        done: false,
+        due: "",
+        note: "",
+      })),
+    })),
+    vendors: [],
+    guests: [],
+    mealOptions: ["Chicken", "Beef", "Fish", "Vegetarian", "Vegan", "Kids", "Other"],
+    groupOptions: ["Bride's family", "Groom's family", "Bride's friends", "Groom's friends", "Work", "Other"],
+  };
+}
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+
+function uid() {
+  return Math.random().toString(36).slice(2, 9);
+}
+
+// Locale hint per currency so symbols render naturally (A$, $, £, €…).
+const CURRENCIES = {
+  AUD: { label: "Australian Dollar (A$)", locale: "en-AU" },
+  USD: { label: "US Dollar ($)", locale: "en-US" },
+  NZD: { label: "New Zealand Dollar (NZ$)", locale: "en-NZ" },
+  GBP: { label: "British Pound (£)", locale: "en-GB" },
+  EUR: { label: "Euro (€)", locale: "en-IE" },
+  CAD: { label: "Canadian Dollar (C$)", locale: "en-CA" },
+  SGD: { label: "Singapore Dollar (S$)", locale: "en-SG" },
+  HKD: { label: "Hong Kong Dollar (HK$)", locale: "en-HK" },
+  JPY: { label: "Japanese Yen (¥)", locale: "ja-JP" },
+  CNY: { label: "Chinese Yuan (¥)", locale: "zh-CN" },
+  INR: { label: "Indian Rupee (₹)", locale: "en-IN" },
+  KRW: { label: "South Korean Won (₩)", locale: "ko-KR" },
+  PHP: { label: "Philippine Peso (₱)", locale: "en-PH" },
+  THB: { label: "Thai Baht (฿)", locale: "th-TH" },
+  MYR: { label: "Malaysian Ringgit (RM)", locale: "ms-MY" },
+  IDR: { label: "Indonesian Rupiah (Rp)", locale: "id-ID" },
+  VND: { label: "Vietnamese Dong (₫)", locale: "vi-VN" },
+  AED: { label: "UAE Dirham (د.إ)", locale: "ar-AE" },
+  SAR: { label: "Saudi Riyal (﷼)", locale: "ar-SA" },
+  CHF: { label: "Swiss Franc (CHF)", locale: "de-CH" },
+  ZAR: { label: "South African Rand (R)", locale: "en-ZA" },
+  MXN: { label: "Mexican Peso (Mex$)", locale: "es-MX" },
+  BRL: { label: "Brazilian Real (R$)", locale: "pt-BR" },
+};
+
+// Current currency is kept in sync by the root component each render, so every
+// existing fmt(n) call across the app reflects the user's choice with no plumbing.
+let CURRENT_CURRENCY = "AUD";
+
+const fmt = (n) => {
+  const cur = CURRENCIES[CURRENT_CURRENCY] ? CURRENT_CURRENCY : "AUD";
+  return new Intl.NumberFormat(CURRENCIES[cur].locale, {
+    style: "currency",
+    currency: cur,
+    maximumFractionDigits: 0,
+  }).format(isNaN(n) ? 0 : n);
+};
+
+const catSpent = (cat) =>
+  cat.expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+// Merge any missing top-level keys so old saved data still works.
+function hydrate(loaded) {
+  const base = makeInitialState();
+  if (!loaded) return base;
+  return {
+    ...base,
+    ...loaded,
+    categories: loaded.categories || base.categories,
+    checklist: loaded.checklist || base.checklist,
+    vendors: loaded.vendors || base.vendors,
+    guests: loaded.guests || base.guests,
+    mealOptions: loaded.mealOptions || base.mealOptions,
+    groupOptions: loaded.groupOptions || base.groupOptions,
+    currency: loaded.currency || base.currency,
+    tables: loaded.tables || base.tables,
+  };
+}
+
+const RSVP_STATUSES = ["Invited", "Yes", "No", "Maybe"];
+
+// Total people coming = each "Yes" guest's party size (min 1).
+function headcount(guests) {
+  return guests
+    .filter((g) => g.rsvp === "Yes")
+    .reduce((s, g) => s + Math.max(1, Number(g.party) || 1), 0);
+}
+
+const VENDOR_STATUSES = ["Researching", "Contacted", "Booked"];
+
+// All expenses across the budget that belong to a given vendor.
+function vendorExpenses(state, vendorId) {
+  const out = [];
+  for (const c of state.categories) {
+    for (const e of c.expenses) {
+      if (e.vendorId === vendorId) out.push({ ...e, catId: c.id });
+    }
+  }
+  return out;
+}
+
+/* ============================================================
+   ROOT — shell + bottom nav
+   ============================================================ */
+
+export default function WeddingPlanner() {
+  const [state, setState] = useState(() => hydrate(storage.load()));
+  const [tab, setTab] = useState("home");
+  // In-memory only: the welcome screen shows each launch. When real Google
+  // auth lands (Stage B), this becomes a true signed-in session.
+  const [entered, setEntered] = useState(false);
+
+  useEffect(() => {
+    storage.save(state);
+  }, [state]);
+
+  const update = useCallback((fn) => setState((s) => fn(structuredClone(s))), []);
+
+  // Keep the module-level currency in sync so every fmt() call reflects the setting.
+  CURRENT_CURRENCY = state.currency || "AUD";
+
+  if (!entered) {
+    return <WelcomeView onEnter={() => { setTab("home"); setEntered(true); }} />;
+  }
+
+  return (
+    <div style={S.page}>
+      <style>{CSS}</style>
+
+      {tab !== "settings" && (
+        <button style={S.gearBtn} onClick={() => setTab("settings")} aria-label="Settings">
+          <Icon name="gear" size={22} color="#b07a72" />
+        </button>
+      )}
+
+      <div style={S.scroll}>
+        {tab === "home" && <HomeView state={state} update={update} go={setTab} />}
+        {tab === "budget" && <BudgetView state={state} update={update} />}
+        {tab === "checklist" && <ChecklistView state={state} update={update} />}
+        {tab === "vendors" && <VendorsView state={state} update={update} />}
+        {tab === "guests" && <GuestsView state={state} update={update} />}
+        {tab === "seating" && <SeatingView state={state} update={update} />}
+        {tab === "settings" && <SettingsView state={state} update={update} setState={setState} go={setTab} onSignOut={() => setEntered(false)} />}
+
+        <footer style={S.footer}>
+          {PERSISTS
+            ? "Saved on this device · syncs across devices via Google Sheets in a later phase"
+            : "Preview mode · data won't persist here, but saving works in the deployed app"}
+        </footer>
+      </div>
+
+      <nav style={S.nav}>
+        <NavBtn active={tab === "home"} onClick={() => setTab("home")} icon="home" label="Home" />
+        <NavBtn active={tab === "budget"} onClick={() => setTab("budget")} icon="budget" label="Budget" />
+        <NavBtn active={tab === "checklist"} onClick={() => setTab("checklist")} icon="check" label="Checklist" />
+        <NavBtn active={tab === "vendors"} onClick={() => setTab("vendors")} icon="vendor" label="Vendors" />
+        <NavBtn active={tab === "guests"} onClick={() => setTab("guests")} icon="guest" label="Guests" />
+        <NavBtn active={tab === "seating"} onClick={() => setTab("seating")} icon="seating" label="Seating" />
+      </nav>
+    </div>
+  );
+}
+
+// Line-style SVG icons — consistent across all phones (no emoji substitution).
+function Icon({ name, size = 22, color = "currentColor" }) {
+  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
+  const paths = {
+    home: <><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5" /></>,
+    budget: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7v10M9.5 9.2c0-1 1.1-1.7 2.5-1.7s2.5.8 2.5 1.8c0 2.4-5 1.3-5 3.6 0 1 1.1 1.8 2.5 1.8s2.5-.7 2.5-1.7" /></>,
+    check: <><path d="M4 12.5 9 17.5 20 6.5" /></>,
+    vendor: <><path d="M3.5 9.5 7 5h10l3.5 4.5L12 21 3.5 9.5Z" /><path d="M3.5 9.5h17M9 5l-1.5 4.5L12 21M15 5l1.5 4.5L12 21" /></>,
+    guest: <><path d="M12 20.5s-7-4.3-9.2-9C1.4 8.6 2.6 5.5 5.6 5c1.9-.3 3.6.8 4.4 2.3.8-1.5 2.5-2.6 4.4-2.3 3 .5 4.2 3.6 2.8 6.5-2.2 4.7-9.2 9-9.2 9Z" /></>,
+    gear: <><circle cx="12" cy="12" r="3.2" /><path d="M19.4 13.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V20a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H10a1.6 1.6 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V10a1.6 1.6 0 0 0 1.5 1H20a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z" /></>,
+    back: <><path d="M15 18l-6-6 6-6" /></>,
+    seating: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="3.5" r="1.6" /><circle cx="12" cy="20.5" r="1.6" /><circle cx="3.5" cy="12" r="1.6" /><circle cx="20.5" cy="12" r="1.6" /></>,
+  };
+  return <svg {...common} style={{ display: "block" }}>{paths[name]}</svg>;
+}
+
+function NavBtn({ active, onClick, icon, label }) {
+  return (
+    <button onClick={onClick} style={{ ...S.navBtn, color: active ? "#6b4a45" : "#c4aaa4" }}>
+      <span style={{ ...S.navIcon, background: active ? "#f4e3df" : "transparent" }}>
+        <Icon name={icon} size={20} color={active ? "#b07a72" : "#c4aaa4"} />
+      </span>
+      <span style={S.navLabel}>{label}</span>
+    </button>
+  );
+}
+
+/* ============================================================
+   WELCOME / SIGN-IN  (visual front door)
+   ------------------------------------------------------------
+   Placeholder auth: "Sign in with Google" currently just enters
+   the app. When Stage B lands, this button triggers real Google
+   OAuth and becomes both the login and the storage connection.
+   ============================================================ */
+
+function GoogleG({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" style={{ display: "block" }}>
+      <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.4 0 24 0 14.6 0 6.4 5.4 2.6 13.2l7.9 6.2C12.3 13.6 17.6 9.5 24 9.5Z" />
+      <path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 7l7.1 5.5c4.2-3.9 6.6-9.6 6.6-17Z" />
+      <path fill="#FBBC05" d="M10.5 28.4c-.5-1.4-.7-2.9-.7-4.4s.3-3 .7-4.4l-7.9-6.2C1 16.5 0 20.1 0 24s1 7.5 2.6 10.6l7.9-6.2Z" />
+      <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.1-5.5c-2 1.3-4.5 2.1-8.8 2.1-6.4 0-11.7-4.1-13.5-9.9l-7.9 6.2C6.4 42.6 14.6 48 24 48Z" />
+    </svg>
+  );
+}
+
+function WelcomeView({ onEnter }) {
+  return (
+    <div style={S.welcomePage}>
+      <style>{CSS}</style>
+      <div style={S.welcomeInner}>
+        <div style={S.welcomeKicker}>Wedding Planner</div>
+        <h1 style={S.welcomeTitle}>Planourdays</h1>
+        <p style={S.welcomeTag}>
+          Budget, checklist, guests, vendors and seating — every part of your big day, in one calm place.
+        </p>
+
+        <button style={S.googleBtn} onClick={onEnter}>
+          <GoogleG size={18} />
+          <span>Sign in with Google</span>
+        </button>
+
+        <button style={S.welcomeGhost} onClick={onEnter}>Continue without signing in</button>
+
+        <div style={S.welcomeFinePrint}>
+          Signing in lets your plans sync across your devices and stay safe in your own Google account.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   BUDGET VIEW
+   ============================================================ */
+
+/* ============================================================
+   HOME / COUPLE PROFILE VIEW
+   ============================================================ */
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const wd = new Date(dateStr + "T00:00:00");
+  if (isNaN(wd)) return null;
+  return Math.round((wd - today) / 86400000);
+}
+
+function HomeView({ state, update, go }) {
+  const set = (patch) => update((s) => { Object.assign(s, patch); return s; });
+  const photos = state.photos || [];
+
+  // Read an image file, downscale it, and store as a data URL (keeps size sane).
+  const addPhotos = (fileList) => {
+    const files = Array.from(fileList).slice(0, 8);
+    files.forEach((file) => {
+      if (!file.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const max = 1000;
+          let { width, height } = img;
+          if (width > max || height > max) {
+            const r = Math.min(max / width, max / height);
+            width = Math.round(width * r); height = Math.round(height * r);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width; canvas.height = height;
+          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+          update((s) => { if (!s.photos) s.photos = []; s.photos.push({ id: uid(), src: dataUrl }); return s; });
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removePhoto = (id) =>
+    update((s) => { s.photos = (s.photos || []).filter((p) => p.id !== id); return s; });
+
+  const dateRef = React.useRef(null);
+  const openDatePicker = () => {
+    const el = dateRef.current;
+    if (!el) return;
+    el.focus();
+    try { el.showPicker?.(); } catch {}
+  };
+
+  const days = daysUntil(state.weddingDate);
+  let countdown;
+  const noDate = days === null;
+  if (noDate) countdown = "Set your date";
+  else if (days > 1) countdown = `${days} days to go`;
+  else if (days === 1) countdown = "1 day to go";
+  else if (days === 0) countdown = "Today's the day! 🤍";
+  else countdown = "Married 🤍";
+
+  // pillar summaries
+  const totalSpent = state.categories.reduce((s, c) => s + catSpent(c), 0);
+  const tasks = state.checklist.flatMap((b) => b.tasks);
+  const tasksDone = tasks.filter((t) => t.done).length;
+  const heads = headcount(state.guests);
+  const vendorsBooked = state.vendors.filter((v) => v.status === "Booked").length;
+
+  const names = state.partner1 && state.partner2
+    ? `${state.partner1} & ${state.partner2}`
+    : (state.partner1 || state.partner2 || "Your Wedding");
+
+  const dateLabel = state.weddingDate
+    ? new Date(state.weddingDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })
+    : "";
+
+  return (
+    <>
+      {/* hero photo */}
+      {photos.length > 0 && (
+        <div style={S.heroPhotoWrap}>
+          <img src={photos[0].src} alt="The couple" style={S.heroPhoto} />
+          <button style={S.heroPhotoRemove} onClick={() => removePhoto(photos[0].id)}>×</button>
+        </div>
+      )}
+
+      {/* hero */}
+      <div style={S.hero}>
+        <div style={S.kicker}>We're getting married</div>
+        <h1 style={S.heroNames}>{names}</h1>
+        {dateLabel && <div style={S.heroDate}>{dateLabel}</div>}
+        <button style={{ ...S.countdownPill, border: "none", cursor: "pointer" }} onClick={openDatePicker}>
+          {countdown}
+        </button>
+      </div>
+
+      {/* couple profile editor */}
+      <section style={S.dashboard}>
+        <div style={S.profileGrid}>
+          <Field label="Partner 1">
+            <input style={S.fieldInput} placeholder="Name" value={state.partner1} onChange={(e) => set({ partner1: e.target.value })} />
+          </Field>
+          <Field label="Partner 2">
+            <input style={S.fieldInput} placeholder="Name" value={state.partner2} onChange={(e) => set({ partner2: e.target.value })} />
+          </Field>
+          <Field label="Wedding date">
+            <input ref={dateRef} type="date" style={S.fieldInput} value={state.weddingDate} onChange={(e) => set({ weddingDate: e.target.value })} />
+          </Field>
+          <Field label="Venue">
+            <input style={S.fieldInput} placeholder="Where?" value={state.venue} onChange={(e) => set({ venue: e.target.value })} />
+          </Field>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <label style={S.smallLabel}>Our vision</label>
+          <textarea style={S.visionInput} rows={3}
+            placeholder="A few words about the day you're dreaming of…"
+            value={state.vision} onChange={(e) => set({ vision: e.target.value })} />
+        </div>
+      </section>
+
+      {/* photo gallery */}
+      <section style={S.dashboard}>
+        <div style={S.galleryHead}>
+          <label style={S.smallLabel}>Our photos</label>
+          <label style={S.addPhotoBtn}>
+            + Add photos
+            <input type="file" accept="image/*" multiple style={{ display: "none" }}
+              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }} />
+          </label>
+        </div>
+        {photos.length === 0 ? (
+          <div style={S.galleryEmpty}>Add a favorite photo of the two of you. The first one becomes your banner.</div>
+        ) : (
+          <div style={S.galleryGrid}>
+            {photos.map((p, i) => (
+              <div key={p.id} style={S.galleryItem}>
+                <img src={p.src} alt="" style={S.galleryImg} />
+                {i === 0 && <span style={S.bannerTag}>Banner</span>}
+                <button style={S.galleryRemove} onClick={() => removePhoto(p.id)}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* summary cards */}
+      <div style={S.summaryGrid}>
+        <SummaryCard onClick={() => go("budget")} icon="budget" label="Budget"
+          big={fmt(totalSpent)} sub={`of ${fmt(state.total)} spent`} />
+        <SummaryCard onClick={() => go("checklist")} icon="check" label="Checklist"
+          big={`${tasksDone}/${tasks.length}`} sub="tasks done" />
+        <SummaryCard onClick={() => go("guests")} icon="guest" label="Guests"
+          big={`${heads}`} sub="coming (incl. +1s)" />
+        <SummaryCard onClick={() => go("vendors")} icon="vendor" label="Vendors"
+          big={`${vendorsBooked}/${state.vendors.length}`} sub="booked" />
+      </div>
+    </>
+  );
+}
+
+function SummaryCard({ onClick, icon, label, big, sub }) {
+  return (
+    <button style={S.summaryCard} onClick={onClick}>
+      <div style={S.summaryTop}>
+        <Icon name={icon} size={17} color="#c98b94" />
+        <span style={S.summaryLabel}>{label}</span>
+      </div>
+      <div style={S.summaryBig}>{big}</div>
+      <div style={S.summarySub}>{sub}</div>
+    </button>
+  );
+}
+
+
+function BudgetView({ state, update }) {
+  const [openCat, setOpenCat] = useState(null);
+
+  const totalAllocated = state.categories.reduce((s, c) => s + (Number(c.allocated) || 0), 0);
+  const totalSpent = state.categories.reduce((s, c) => s + catSpent(c), 0);
+  const remaining = state.total - totalSpent;
+  const upcoming = state.categories.reduce(
+    (s, c) => s + c.expenses.filter((e) => !e.paid).reduce((a, e) => a + (Number(e.amount) || 0), 0),
+    0
+  );
+  const spentPct = state.total > 0 ? Math.min(100, (totalSpent / state.total) * 100) : 0;
+  const overBudget = totalSpent > state.total;
+
+  // What's contractually committed to vendors but not yet paid:
+  // for each vendor, max(0, contracted - payments logged so far).
+  const vendorsOwed = (state.vendors || [])
+    .map((v) => {
+      const paid = vendorExpenses(state, v.id).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+      return { name: v.name, owed: Math.max(0, (Number(v.contracted) || 0) - paid) };
+    })
+    .filter((v) => v.owed > 0);
+  const totalCommitted = vendorsOwed.reduce((s, v) => s + v.owed, 0);
+
+  const setTotal = (v) => update((s) => { s.total = Math.max(0, Number(v) || 0); return s; });
+  const addCategory = () => update((s) => { s.categories.push({ id: uid(), name: "New Category", allocated: 0, expenses: [] }); return s; });
+  const editCategory = (id, patch) => update((s) => { const c = s.categories.find((x) => x.id === id); if (c) Object.assign(c, patch); return s; });
+  const deleteCategory = (id) => update((s) => { s.categories = s.categories.filter((x) => x.id !== id); return s; });
+  const addExpense = (catId, exp) => update((s) => { const c = s.categories.find((x) => x.id === catId); if (c) c.expenses.push({ id: uid(), ...exp }); return s; });
+  const editExpense = (catId, expId, patch) => update((s) => { const c = s.categories.find((x) => x.id === catId); const e = c?.expenses.find((x) => x.id === expId); if (e) Object.assign(e, patch); return s; });
+  const deleteExpense = (catId, expId) => update((s) => { const c = s.categories.find((x) => x.id === catId); if (c) c.expenses = c.expenses.filter((x) => x.id !== expId); return s; });
+
+  return (
+    <>
+      <header style={S.header}>
+        <div style={S.kicker}>The Wedding</div>
+        <h1 style={S.title}>Budget</h1>
+      </header>
+
+      <section style={S.dashboard}>
+        <div style={S.totalRow}>
+          <label style={S.totalLabel}>Total Budget</label>
+          <div style={S.totalInputWrap}>
+            <span style={S.dollar}>$</span>
+            <input type="number" inputMode="numeric" value={state.total === 0 ? "" : state.total}
+              placeholder="0" onChange={(e) => setTotal(e.target.value)} style={S.totalInput} />
+          </div>
+        </div>
+
+        <div style={S.bar}>
+          <div style={{ ...S.barFill, width: `${spentPct}%`, background: overBudget ? "#c2566b" : "linear-gradient(90deg,#d9a7a0,#c98b94)" }} />
+        </div>
+
+        <div style={S.stats} className="stats-grid">
+          <Stat label="Spent" value={fmt(totalSpent)} accent={overBudget ? "#c2566b" : "#8a6d68"} />
+          <Stat label="Remaining" value={fmt(remaining)} accent={remaining < 0 ? "#c2566b" : "#6f8a6d"} />
+          <Stat label="Upcoming" value={fmt(upcoming)} accent="#a8862f" />
+          <Stat label="Allocated" value={fmt(totalAllocated)} accent="#8a6d68" />
+        </div>
+        {totalAllocated !== state.total && (
+          <div style={S.allocNote}>
+            {totalAllocated > state.total
+              ? `You've allocated ${fmt(totalAllocated - state.total)} more than your budget.`
+              : `${fmt(state.total - totalAllocated)} of your budget is unallocated.`}
+          </div>
+        )}
+
+        {totalCommitted > 0 && (
+          <div style={S.committedBox}>
+            <div style={S.committedTop}>
+              <span style={S.committedLabel}>Still to pay vendors</span>
+              <span style={S.committedValue}>{fmt(totalCommitted)}</span>
+            </div>
+            <div style={S.committedHint}>Contracted amounts you haven't paid yet</div>
+            <div style={S.owedList}>
+              {vendorsOwed.map((v, i) => (
+                <div key={i} style={S.owedRow}>
+                  <span style={S.owedName}>{v.name || "Vendor"}</span>
+                  <span style={S.owedAmt}>{fmt(v.owed)} owing</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section>
+        {state.categories.map((cat) => {
+          const spent = catSpent(cat);
+          const diff = cat.allocated - spent;
+          const isOpen = openCat === cat.id;
+          return (
+            <div key={cat.id} style={S.card}>
+              <div style={S.cardHead} onClick={() => setOpenCat(isOpen ? null : cat.id)}>
+                <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
+                <div style={S.catMain}>
+                  <input value={cat.name} onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => editCategory(cat.id, { name: e.target.value })} style={S.catName} />
+                  <div style={S.catNumbers}>
+                    <span style={S.catSpent}>{fmt(spent)}</span>
+                    <span style={S.catOf}>of {fmt(cat.allocated)}</span>
+                    <span style={{ ...S.diffPill, background: diff < 0 ? "#f7dde2" : "#e4eede", color: diff < 0 ? "#c2566b" : "#5c7a59" }}>
+                      {diff < 0 ? `${fmt(-diff)} over` : `${fmt(diff)} left`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {isOpen && (
+                <div style={S.cardBody}>
+                  <div style={S.allocEdit}>
+                    <label style={S.smallLabel}>Allocated</label>
+                    <div style={S.miniInputWrap}>
+                      <span style={S.miniDollar}>$</span>
+                      <input type="number" inputMode="numeric" value={cat.allocated === 0 ? "" : cat.allocated}
+                        placeholder="0" onChange={(e) => editCategory(cat.id, { allocated: Number(e.target.value) || 0 })} style={S.miniInput} />
+                    </div>
+                    <button style={S.deleteCat} onClick={() => deleteCategory(cat.id)}>Delete</button>
+                  </div>
+                  <ExpenseList cat={cat} vendors={state.vendors}
+                    onAdd={(exp) => addExpense(cat.id, exp)}
+                    onEdit={(eid, patch) => editExpense(cat.id, eid, patch)}
+                    onDelete={(eid) => deleteExpense(cat.id, eid)} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <button style={S.addCat} onClick={addCategory}>+ Add category</button>
+      </section>
+    </>
+  );
+}
+
+function Stat({ label, value, accent }) {
+  return (
+    <div style={S.statBox}>
+      <div style={S.statLabel}>{label}</div>
+      <div style={{ ...S.statValue, color: accent }}>{value}</div>
+    </div>
+  );
+}
+
+function ExpenseList({ cat, vendors = [], onAdd, onEdit, onDelete }) {
+  const [desc, setDesc] = useState("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [paid, setPaid] = useState(true);
+
+  const vendorName = (id) => vendors.find((v) => v.id === id)?.name;
+
+  const submit = () => {
+    if (!desc.trim() || !amount) return;
+    onAdd({ desc: desc.trim(), amount: Number(amount) || 0, date, paid });
+    setDesc(""); setAmount(""); setPaid(true);
+  };
+
+  return (
+    <div>
+      {cat.expenses.map((e) => (
+        <div key={e.id} style={S.expItem}>
+          <div style={S.expItemTop}>
+            <input style={S.expDesc} value={e.desc} onChange={(ev) => onEdit(e.id, { desc: ev.target.value })} />
+            <button style={S.expDelete} onClick={() => onDelete(e.id)}>×</button>
+          </div>
+          {e.vendorId && vendorName(e.vendorId) && (
+            <div style={S.vendorTag}>♦ {vendorName(e.vendorId)}</div>
+          )}
+          <div style={S.expItemBottom}>
+            <div style={S.expAmtWrap}>
+              <span style={S.miniDollar}>$</span>
+              <input type="number" inputMode="numeric" style={S.expAmt} value={e.amount}
+                onChange={(ev) => onEdit(e.id, { amount: Number(ev.target.value) || 0 })} />
+            </div>
+            <input type="date" style={S.expDate} value={e.date} onChange={(ev) => onEdit(e.id, { date: ev.target.value })} />
+            <button style={{ ...S.statusToggle, color: e.paid ? "#5c7a59" : "#a8862f", background: e.paid ? "#e4eede" : "#faf0d8" }}
+              onClick={() => onEdit(e.id, { paid: !e.paid })}>
+              {e.paid ? "Paid" : "Upcoming"}
+            </button>
+          </div>
+        </div>
+      ))}
+
+      <div style={S.addBox}>
+        <div style={S.addBoxLabel}>Add an expense</div>
+        <input style={S.addDesc} placeholder="What's it for? (e.g. Venue deposit)" value={desc} onChange={(e) => setDesc(e.target.value)} />
+        <div style={S.addRow}>
+          <div style={S.expAmtWrap}>
+            <span style={S.miniDollar}>$</span>
+            <input type="number" inputMode="numeric" style={S.expAmt} placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <input type="date" style={S.expDate} value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div style={S.addRow}>
+          <button style={{ ...S.statusToggleWide, color: paid ? "#5c7a59" : "#a8862f", background: paid ? "#e4eede" : "#faf0d8" }}
+            onClick={() => setPaid(!paid)}>
+            {paid ? "✓ Paid" : "◷ Upcoming"}
+          </button>
+        </div>
+        <button style={{ ...S.addBtn, opacity: desc.trim() && amount ? 1 : 0.5 }} onClick={submit}>+ Add expense</button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   CHECKLIST VIEW
+   ============================================================ */
+
+function ChecklistView({ state, update }) {
+  const [openBucket, setOpenBucket] = useState(state.checklist[0]?.id || null);
+  const [expanded, setExpanded] = useState(null); // task id whose detail is open
+
+  const allTasks = state.checklist.flatMap((b) => b.tasks);
+  const doneCount = allTasks.filter((t) => t.done).length;
+  const totalCount = allTasks.length;
+  const pct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  const setWeddingDate = (v) => update((s) => { s.weddingDate = v; return s; });
+  const toggleTask = (bid, tid) => update((s) => { const b = s.checklist.find((x) => x.id === bid); const t = b?.tasks.find((x) => x.id === tid); if (t) t.done = !t.done; return s; });
+  const editTask = (bid, tid, patch) => update((s) => { const b = s.checklist.find((x) => x.id === bid); const t = b?.tasks.find((x) => x.id === tid); if (t) Object.assign(t, patch); return s; });
+  const deleteTask = (bid, tid) => update((s) => { const b = s.checklist.find((x) => x.id === bid); if (b) b.tasks = b.tasks.filter((x) => x.id !== tid); return s; });
+  const addTask = (bid, name) => update((s) => { const b = s.checklist.find((x) => x.id === bid); if (b) b.tasks.push({ id: uid(), name, done: false, due: "", note: "" }); return s; });
+
+  return (
+    <>
+      <header style={S.header}>
+        <div style={S.kicker}>The Wedding</div>
+        <h1 style={S.title}>Checklist</h1>
+      </header>
+
+      <section style={S.dashboard}>
+        <div style={S.totalRow}>
+          <label style={S.totalLabel}>Wedding Date</label>
+          <input type="date" value={state.weddingDate} onChange={(e) => setWeddingDate(e.target.value)} style={S.dateInput} />
+        </div>
+        <div style={S.bar}>
+          <div style={{ ...S.barFill, width: `${pct}%`, background: "linear-gradient(90deg,#d9a7a0,#c98b94)" }} />
+        </div>
+        <div style={S.progressRow}>
+          <span style={S.progressBig}>{doneCount} of {totalCount}</span>
+          <span style={S.progressSmall}>tasks done · {pct}%</span>
+        </div>
+      </section>
+
+      <section>
+        {state.checklist.map((bucket) => {
+          const bDone = bucket.tasks.filter((t) => t.done).length;
+          const isOpen = openBucket === bucket.id;
+          return (
+            <div key={bucket.id} style={S.card}>
+              <div style={S.cardHead} onClick={() => setOpenBucket(isOpen ? null : bucket.id)}>
+                <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
+                <div style={S.catMain}>
+                  <div style={S.bucketLabel}>{bucket.label}</div>
+                  <div style={S.bucketCount}>{bDone}/{bucket.tasks.length} done</div>
+                </div>
+              </div>
+
+              {isOpen && (
+                <div style={S.cardBody}>
+                  {bucket.tasks.map((t) => {
+                    const open = expanded === t.id;
+                    return (
+                      <div key={t.id} style={S.taskItem}>
+                        <div style={S.taskTop}>
+                          <button style={{ ...S.check, background: t.done ? "#c98b94" : "#fff", borderColor: t.done ? "#c98b94" : "#d9b8b2" }}
+                            onClick={() => toggleTask(bucket.id, t.id)}>
+                            {t.done ? "✓" : ""}
+                          </button>
+                          <input style={{ ...S.taskName, textDecoration: t.done ? "line-through" : "none", color: t.done ? "#b9a39e" : "#3a2e2c" }}
+                            value={t.name} onChange={(e) => editTask(bucket.id, t.id, { name: e.target.value })} />
+                          <button style={S.taskExpand} onClick={() => setExpanded(open ? null : t.id)}>
+                            {open ? "−" : "⋯"}
+                          </button>
+                        </div>
+                        {(open || t.due || t.note) && (
+                          <div style={S.taskDetail}>
+                            <div style={S.taskDetailRow}>
+                              <label style={S.smallLabel}>Due</label>
+                              <input type="date" style={S.taskDate} value={t.due} onChange={(e) => editTask(bucket.id, t.id, { due: e.target.value })} />
+                              <button style={S.taskDelete} onClick={() => deleteTask(bucket.id, t.id)}>Delete</button>
+                            </div>
+                            <input style={S.taskNote} placeholder="Add a note…" value={t.note}
+                              onChange={(e) => editTask(bucket.id, t.id, { note: e.target.value })} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <AddTask onAdd={(name) => addTask(bucket.id, name)} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </section>
+    </>
+  );
+}
+
+function AddTask({ onAdd }) {
+  const [name, setName] = useState("");
+  const submit = () => { if (!name.trim()) return; onAdd(name.trim()); setName(""); };
+  return (
+    <div style={S.addTaskRow}>
+      <input style={S.addTaskInput} placeholder="Add a task…" value={name}
+        onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+      <button style={{ ...S.expAdd, opacity: name.trim() ? 1 : 0.5 }} onClick={submit}>+</button>
+    </div>
+  );
+}
+
+/* ============================================================
+   VENDORS VIEW
+   ============================================================ */
+
+function VendorsView({ state, update }) {
+  const [openVendor, setOpenVendor] = useState(null);
+  const [query, setQuery] = useState("");
+
+  const booked = state.vendors.filter((v) => v.status === "Booked").length;
+  const q = query.trim().toLowerCase();
+  const shownVendors = !q
+    ? state.vendors
+    : state.vendors.filter((v) =>
+        [v.name, v.type, v.notes].some((f) => (f || "").toLowerCase().includes(q))
+      );
+
+  const addVendor = () =>
+    update((s) => {
+      const v = {
+        id: uid(),
+        name: "New Vendor",
+        type: "",
+        categoryId: s.categories[0]?.id || "",
+        phone: "",
+        email: "",
+        status: "Researching",
+        notes: "",
+        contracted: 0,
+      };
+      s.vendors.push(v);
+      return s;
+    });
+
+  const editVendor = (id, patch) =>
+    update((s) => { const v = s.vendors.find((x) => x.id === id); if (v) Object.assign(v, patch); return s; });
+
+  const deleteVendor = (id) =>
+    update((s) => {
+      // Unlink this vendor from any expenses, but keep the expenses themselves.
+      for (const c of s.categories) for (const e of c.expenses) if (e.vendorId === id) delete e.vendorId;
+      s.vendors = s.vendors.filter((x) => x.id !== id);
+      return s;
+    });
+
+  // Add a payment = create an expense in the vendor's linked category, tagged with vendorId.
+  const addPayment = (vendor, pay) =>
+    update((s) => {
+      const cat = s.categories.find((c) => c.id === vendor.categoryId) || s.categories[0];
+      if (cat) cat.expenses.push({ id: uid(), vendorId: vendor.id, ...pay });
+      return s;
+    });
+
+  const editPayment = (catId, expId, patch) =>
+    update((s) => { const c = s.categories.find((x) => x.id === catId); const e = c?.expenses.find((x) => x.id === expId); if (e) Object.assign(e, patch); return s; });
+
+  const deletePayment = (catId, expId) =>
+    update((s) => { const c = s.categories.find((x) => x.id === catId); if (c) c.expenses = c.expenses.filter((x) => x.id !== expId); return s; });
+
+  return (
+    <>
+      <header style={S.header}>
+        <div style={S.kicker}>The Wedding</div>
+        <h1 style={S.title}>Vendors</h1>
+      </header>
+
+      <section style={S.dashboard}>
+        <div style={S.progressRow}>
+          <span style={S.progressBig}>{booked} of {state.vendors.length}</span>
+          <span style={S.progressSmall}>vendors booked</span>
+        </div>
+      </section>
+
+      {/* search */}
+      {state.vendors.length > 0 && (
+        <div style={S.searchWrap}>
+          <span style={S.searchIcon}>⌕</span>
+          <input style={S.searchInput} placeholder="Search by name, type, or notes…"
+            value={query} onChange={(e) => setQuery(e.target.value)} />
+          {query && <button style={S.searchClear} onClick={() => setQuery("")}>×</button>}
+        </div>
+      )}
+
+      <section>
+        {state.vendors.length === 0 && (
+          <div style={S.emptyNote}>No vendors yet. Add your photographer, florist, caterer and more below.</div>
+        )}
+        {state.vendors.length > 0 && shownVendors.length === 0 && (
+          <div style={S.emptyNote}>No vendors match your search.</div>
+        )}
+
+        {shownVendors.map((vendor) => {
+          const cat = state.categories.find((c) => c.id === vendor.categoryId);
+          const payments = vendorExpenses(state, vendor.id);
+          const paid = payments.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+          const isOpen = openVendor === vendor.id;
+          const statusColor =
+            vendor.status === "Booked" ? { bg: "#e4eede", fg: "#5c7a59" }
+            : vendor.status === "Contacted" ? { bg: "#faf0d8", fg: "#a8862f" }
+            : { bg: "#f4e8e4", fg: "#b07a72" };
+
+          return (
+            <div key={vendor.id} style={S.card}>
+              <div style={S.cardHead} onClick={() => setOpenVendor(isOpen ? null : vendor.id)}>
+                <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
+                <div style={S.catMain}>
+                  <input value={vendor.name} onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => editVendor(vendor.id, { name: e.target.value })} style={S.catName} />
+                  <div style={S.catNumbers}>
+                    <span style={{ ...S.diffPill, background: statusColor.bg, color: statusColor.fg }}>{vendor.status}</span>
+                    {vendor.type && <span style={S.catOf}>{vendor.type}</span>}
+                    <span style={S.catSpent}>{fmt(paid)}</span>
+                    {vendor.contracted > 0 && <span style={S.catOf}>of {fmt(vendor.contracted)}</span>}
+                  </div>
+                </div>
+              </div>
+
+              {isOpen && (
+                <div style={S.cardBody}>
+                  {/* details */}
+                  <div style={S.vendorFields}>
+                    <Field label="Type">
+                      <input style={S.fieldInput} placeholder="e.g. Photographer" value={vendor.type}
+                        onChange={(e) => editVendor(vendor.id, { type: e.target.value })} />
+                    </Field>
+                    <Field label="Budget category">
+                      <select style={S.fieldSelect} value={vendor.categoryId}
+                        onChange={(e) => editVendor(vendor.id, { categoryId: e.target.value })}>
+                        {state.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Status">
+                      <select style={S.fieldSelect} value={vendor.status}
+                        onChange={(e) => editVendor(vendor.id, { status: e.target.value })}>
+                        {VENDOR_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Contracted total">
+                      <div style={S.miniInputWrap}>
+                        <span style={S.miniDollar}>$</span>
+                        <input type="number" inputMode="numeric" style={S.miniInput}
+                          value={vendor.contracted === 0 ? "" : vendor.contracted} placeholder="0"
+                          onChange={(e) => editVendor(vendor.id, { contracted: Number(e.target.value) || 0 })} />
+                      </div>
+                    </Field>
+                    <Field label="Phone">
+                      <input style={S.fieldInput} placeholder="Phone" value={vendor.phone}
+                        onChange={(e) => editVendor(vendor.id, { phone: e.target.value })} />
+                    </Field>
+                    <Field label="Email">
+                      <input style={S.fieldInput} placeholder="Email" value={vendor.email}
+                        onChange={(e) => editVendor(vendor.id, { email: e.target.value })} />
+                    </Field>
+                  </div>
+                  <input style={S.taskNote} placeholder="Notes (quote details, what's included)…" value={vendor.notes}
+                    onChange={(e) => editVendor(vendor.id, { notes: e.target.value })} />
+
+                  {/* contracted vs paid bar */}
+                  {vendor.contracted > 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={S.bar}>
+                        <div style={{ ...S.barFill, width: `${Math.min(100, (paid / vendor.contracted) * 100)}%`, background: "linear-gradient(90deg,#d9a7a0,#c98b94)" }} />
+                      </div>
+                      <div style={S.vendorPaidLine}>
+                        {fmt(paid)} paid · {fmt(Math.max(0, vendor.contracted - paid))} remaining
+                      </div>
+                    </div>
+                  )}
+
+                  {/* payments — these ARE budget expenses */}
+                  <div style={S.payLabel}>Payments {cat && <span style={S.payHint}>→ shown in {cat.name}</span>}</div>
+                  {payments.map((e) => (
+                    <div key={e.id} style={S.expItem}>
+                      <div style={S.expItemTop}>
+                        <input style={S.expDesc} value={e.desc} onChange={(ev) => editPayment(e.catId, e.id, { desc: ev.target.value })} />
+                        <button style={S.expDelete} onClick={() => deletePayment(e.catId, e.id)}>×</button>
+                      </div>
+                      <div style={S.expItemBottom}>
+                        <div style={S.expAmtWrap}>
+                          <span style={S.miniDollar}>$</span>
+                          <input type="number" inputMode="numeric" style={S.expAmt} value={e.amount}
+                            onChange={(ev) => editPayment(e.catId, e.id, { amount: Number(ev.target.value) || 0 })} />
+                        </div>
+                        <input type="date" style={S.expDate} value={e.date} onChange={(ev) => editPayment(e.catId, e.id, { date: ev.target.value })} />
+                        <button style={{ ...S.statusToggle, color: e.paid ? "#5c7a59" : "#a8862f", background: e.paid ? "#e4eede" : "#faf0d8" }}
+                          onClick={() => editPayment(e.catId, e.id, { paid: !e.paid })}>
+                          {e.paid ? "Paid" : "Upcoming"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <PaymentAdd onAdd={(pay) => addPayment(vendor, pay)} />
+
+                  <button style={{ ...S.deleteCat, marginTop: 14, display: "block" }} onClick={() => deleteVendor(vendor.id)}>
+                    Delete vendor
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        <button style={S.addCat} onClick={addVendor}>+ Add vendor</button>
+      </section>
+    </>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div style={S.field}>
+      <label style={S.smallLabel}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function PaymentAdd({ onAdd }) {
+  const [desc, setDesc] = useState("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [paid, setPaid] = useState(true);
+
+  const submit = () => {
+    if (!desc.trim() || !amount) return;
+    onAdd({ desc: desc.trim(), amount: Number(amount) || 0, date, paid });
+    setDesc(""); setAmount(""); setPaid(true);
+  };
+
+  return (
+    <div style={S.addBox}>
+      <div style={S.addBoxLabel}>Add a payment</div>
+      <input style={S.addDesc} placeholder="e.g. Deposit" value={desc} onChange={(e) => setDesc(e.target.value)} />
+      <div style={S.addRow}>
+        <div style={S.expAmtWrap}>
+          <span style={S.miniDollar}>$</span>
+          <input type="number" inputMode="numeric" style={S.expAmt} placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </div>
+        <input type="date" style={S.expDate} value={date} onChange={(e) => setDate(e.target.value)} />
+      </div>
+      <div style={S.addRow}>
+        <button style={{ ...S.statusToggleWide, color: paid ? "#5c7a59" : "#a8862f", background: paid ? "#e4eede" : "#faf0d8" }}
+          onClick={() => setPaid(!paid)}>
+          {paid ? "✓ Paid" : "◷ Upcoming"}
+        </button>
+      </div>
+      <button style={{ ...S.addBtn, opacity: desc.trim() && amount ? 1 : 0.5 }} onClick={submit}>+ Add payment</button>
+    </div>
+  );
+}
+
+/* ============================================================
+   GUESTS VIEW
+   ============================================================ */
+
+function GuestsView({ state, update }) {
+  const [openGuest, setOpenGuest] = useState(null);
+  const [filter, setFilter] = useState("All");
+  const [query, setQuery] = useState("");
+  const [managing, setManaging] = useState(false);
+
+  const addOption = (listKey, val) =>
+    update((s) => { if (val.trim() && !s[listKey].includes(val.trim())) s[listKey].push(val.trim()); return s; });
+  const renameOption = (listKey, idx, val) =>
+    update((s) => {
+      const old = s[listKey][idx];
+      s[listKey][idx] = val;
+      const field = listKey === "mealOptions" ? "meal" : "group";
+      for (const g of s.guests) if (g[field] === old) g[field] = val;
+      return s;
+    });
+  const removeOption = (listKey, idx) =>
+    update((s) => {
+      const removed = s[listKey][idx];
+      s[listKey].splice(idx, 1);
+      const field = listKey === "mealOptions" ? "meal" : "group";
+      for (const g of s.guests) if (g[field] === removed) g[field] = "";
+      return s;
+    });
+
+  const guests = state.guests;
+  const counts = {
+    invited: guests.length,
+    yes: guests.filter((g) => g.rsvp === "Yes").length,
+    no: guests.filter((g) => g.rsvp === "No").length,
+    waiting: guests.filter((g) => g.rsvp === "Invited" || g.rsvp === "Maybe").length,
+  };
+  const heads = headcount(guests);
+
+  const byStatus = filter === "All" ? guests : guests.filter((g) => g.rsvp === filter);
+  const q = query.trim().toLowerCase();
+  const shown = !q
+    ? byStatus
+    : byStatus.filter((g) =>
+        [g.name, g.group, g.notes].some((f) => (f || "").toLowerCase().includes(q))
+      );
+
+  const addGuest = () =>
+    update((s) => {
+      s.guests.push({ id: uid(), name: "", rsvp: "Invited", party: 1, meal: "", group: "", notes: "" });
+      return s;
+    });
+  const editGuest = (id, patch) =>
+    update((s) => { const g = s.guests.find((x) => x.id === id); if (g) Object.assign(g, patch); return s; });
+  const deleteGuest = (id) =>
+    update((s) => { s.guests = s.guests.filter((x) => x.id !== id); return s; });
+
+  const rsvpColor = (st) =>
+    st === "Yes" ? { bg: "#e4eede", fg: "#5c7a59" }
+    : st === "No" ? { bg: "#f7dde2", fg: "#c2566b" }
+    : st === "Maybe" ? { bg: "#faf0d8", fg: "#a8862f" }
+    : { bg: "#f4e8e4", fg: "#b07a72" };
+
+  return (
+    <>
+      <header style={S.header}>
+        <div style={S.kicker}>The Wedding</div>
+        <h1 style={S.title}>Guests</h1>
+      </header>
+
+      <section style={S.dashboard}>
+        <div style={S.guestStats}>
+          <GuestStat n={counts.yes} label="Coming" accent="#5c7a59" />
+          <GuestStat n={counts.waiting} label="Awaiting" accent="#a8862f" />
+          <GuestStat n={counts.no} label="Declined" accent="#c2566b" />
+          <GuestStat n={counts.invited} label="Invited" accent="#8a6d68" />
+        </div>
+        <div style={S.headcountBox}>
+          <span style={S.headcountNum}>{heads}</span>
+          <span style={S.headcountLabel}>total guests coming (incl. +1s) — your caterer headcount</span>
+        </div>
+      </section>
+
+      {/* search */}
+      <div style={S.searchWrap}>
+        <span style={S.searchIcon}>⌕</span>
+        <input style={S.searchInput} placeholder="Search by name, group, or notes…"
+          value={query} onChange={(e) => setQuery(e.target.value)} />
+        {query && <button style={S.searchClear} onClick={() => setQuery("")}>×</button>}
+      </div>
+
+      {/* filter pills */}
+      <div style={S.filterRow}>
+        {["All", "Invited", "Yes", "Maybe", "No"].map((f) => (
+          <button key={f} onClick={() => setFilter(f)}
+            style={{ ...S.filterPill, background: filter === f ? "#c98b94" : "#fff", color: filter === f ? "#fff" : "#b58e87", borderColor: filter === f ? "#c98b94" : "#f0e2dd" }}>
+            {f}
+          </button>
+        ))}
+        <button onClick={() => setManaging((m) => !m)}
+          style={{ ...S.filterPill, marginLeft: "auto", background: managing ? "#6b4a45" : "#fff", color: managing ? "#fff" : "#b58e87", borderColor: managing ? "#6b4a45" : "#f0e2dd" }}>
+          {managing ? "Done" : "⚙ Options"}
+        </button>
+      </div>
+
+      {managing && (
+        <section style={S.dashboard}>
+          <OptionEditor title="Meal options" listKey="mealOptions" items={state.mealOptions}
+            onAdd={addOption} onRename={renameOption} onRemove={removeOption} />
+          <div style={{ height: 18 }} />
+          <OptionEditor title="Group / side options" listKey="groupOptions" items={state.groupOptions}
+            onAdd={addOption} onRename={renameOption} onRemove={removeOption} />
+        </section>
+      )}
+
+      <section>
+        {guests.length === 0 && (
+          <div style={S.emptyNote}>No guests yet. Tap "Add guest" to start your list.</div>
+        )}
+        {guests.length > 0 && shown.length === 0 && (
+          <div style={S.emptyNote}>No guests match your search or filter.</div>
+        )}
+
+        {shown.map((g) => {
+          const isOpen = openGuest === g.id;
+          const c = rsvpColor(g.rsvp);
+          return (
+            <div key={g.id} style={S.card}>
+              <div style={S.cardHead} onClick={() => setOpenGuest(isOpen ? null : g.id)}>
+                <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
+                <div style={S.catMain}>
+                  <input value={g.name} placeholder="Guest name" onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => editGuest(g.id, { name: e.target.value })} style={S.catName} />
+                  <div style={S.catNumbers}>
+                    <span style={{ ...S.diffPill, background: c.bg, color: c.fg }}>{g.rsvp}</span>
+                    {Number(g.party) > 1 && <span style={S.catOf}>party of {g.party}</span>}
+                    {g.group && <span style={S.catOf}>{g.group}</span>}
+                  </div>
+                </div>
+              </div>
+
+              {isOpen && (
+                <div style={S.cardBody}>
+                  <div style={S.vendorFields}>
+                    <Field label="RSVP">
+                      <select style={S.fieldSelect} value={g.rsvp} onChange={(e) => editGuest(g.id, { rsvp: e.target.value })}>
+                        {RSVP_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Party size (incl. guest)">
+                      <input type="number" inputMode="numeric" min="1" style={S.fieldInput}
+                        value={g.party} onChange={(e) => editGuest(g.id, { party: Math.max(1, Number(e.target.value) || 1) })} />
+                    </Field>
+                    <Field label="Meal">
+                      <select style={S.fieldSelect} value={g.meal} onChange={(e) => editGuest(g.id, { meal: e.target.value })}>
+                        <option value="">—</option>
+                        {state.mealOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Group / side">
+                      <select style={S.fieldSelect} value={g.group} onChange={(e) => editGuest(g.id, { group: e.target.value })}>
+                        <option value="">—</option>
+                        {state.groupOptions.map((gr) => <option key={gr} value={gr}>{gr}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                  <input style={S.taskNote} placeholder="Notes (dietary needs, address)…" value={g.notes}
+                    onChange={(e) => editGuest(g.id, { notes: e.target.value })} />
+                  <button style={{ ...S.deleteCat, marginTop: 14, display: "block" }} onClick={() => deleteGuest(g.id)}>
+                    Remove guest
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        <button style={S.addCat} onClick={addGuest}>+ Add guest</button>
+      </section>
+    </>
+  );
+}
+
+function GuestStat({ n, label, accent }) {
+  return (
+    <div style={S.statBox}>
+      <div style={{ ...S.statValue, color: accent }}>{n}</div>
+      <div style={S.statLabel}>{label}</div>
+    </div>
+  );
+}
+
+function OptionEditor({ title, listKey, items, onAdd, onRename, onRemove }) {
+  const [draft, setDraft] = useState("");
+  const submit = () => { if (!draft.trim()) return; onAdd(listKey, draft); setDraft(""); };
+  return (
+    <div>
+      <div style={S.smallLabel}>{title}</div>
+      <div style={S.optList}>
+        {items.map((item, i) => (
+          <div key={i} style={S.optRow}>
+            <input style={S.optInput} value={item} onChange={(e) => onRename(listKey, i, e.target.value)} />
+            <button style={S.expDelete} onClick={() => onRemove(listKey, i)}>×</button>
+          </div>
+        ))}
+      </div>
+      <div style={S.addTaskRow}>
+        <input style={S.addTaskInput} placeholder={`Add an option…`} value={draft}
+          onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        <button style={{ ...S.expAdd, opacity: draft.trim() ? 1 : 0.5 }} onClick={submit}>+</button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   SETTINGS VIEW
+   ============================================================ */
+
+function SettingsView({ state, update, setState, go, onSignOut }) {
+  const [confirmingReset, setConfirmingReset] = useState(false);
+
+  const setCurrency = (code) => update((s) => { s.currency = code; return s; });
+
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `wedding-planner-backup-${stamp}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        setState(hydrate(parsed));
+        go("home");
+      } catch {
+        alert("That file couldn't be read as a valid backup.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const doReset = () => {
+    setState(makeInitialState());
+    setConfirmingReset(false);
+    go("home");
+  };
+
+  return (
+    <>
+      <header style={S.settingsHeader}>
+        <button style={S.backBtn} onClick={() => go("home")}>
+          <Icon name="back" size={20} color="#b07a72" />
+        </button>
+        <h1 style={S.settingsTitle}>Settings</h1>
+        <div style={{ width: 36 }} />
+      </header>
+
+      {/* Currency */}
+      <section style={S.dashboard}>
+        <div style={S.smallLabel}>Currency</div>
+        <p style={S.settingHint}>Used everywhere money is shown.</p>
+        <select style={{ ...S.fieldSelect, width: "100%", marginTop: 6 }} value={state.currency || "AUD"}
+          onChange={(e) => setCurrency(e.target.value)}>
+          {Object.entries(CURRENCIES).map(([code, info]) => (
+            <option key={code} value={code}>{info.label}</option>
+          ))}
+        </select>
+        <div style={S.currencyPreview}>Preview: {fmt(12500)}</div>
+      </section>
+
+      {/* Backup */}
+      <section style={S.dashboard}>
+        <div style={S.smallLabel}>Backup & restore</div>
+        <p style={S.settingHint}>Save a copy of everything to a file, or restore from one. Handy while your data lives on this device.</p>
+        <button style={S.settingBtn} onClick={exportData}>Export a backup file</button>
+        <label style={{ ...S.settingBtn, ...S.settingBtnOutline, display: "block", textAlign: "center", marginTop: 10 }}>
+          Restore from a backup file
+          <input type="file" accept="application/json,.json" style={{ display: "none" }}
+            onChange={(e) => { importData(e.target.files[0]); e.target.value = ""; }} />
+        </label>
+      </section>
+
+      {/* Reset */}
+      <section style={S.dashboard}>
+        <div style={S.smallLabel}>Reset</div>
+        <p style={S.settingHint}>Clears everything and starts fresh. This can't be undone — export a backup first if unsure.</p>
+        {!confirmingReset ? (
+          <button style={{ ...S.settingBtn, ...S.settingBtnDanger }} onClick={() => setConfirmingReset(true)}>
+            Reset all data
+          </button>
+        ) : (
+          <div style={S.confirmBox}>
+            <div style={S.confirmText}>Really erase everything and start over?</div>
+            <div style={S.confirmRow}>
+              <button style={{ ...S.settingBtn, ...S.settingBtnOutline, flex: 1 }} onClick={() => setConfirmingReset(false)}>Cancel</button>
+              <button style={{ ...S.settingBtn, ...S.settingBtnDanger, flex: 1 }} onClick={doReset}>Yes, reset</button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section style={S.dashboard}>
+        <div style={S.smallLabel}>Account</div>
+        <p style={S.settingHint}>You'll return to the welcome screen. Your saved plans stay on this device.</p>
+        <button style={{ ...S.settingBtn, ...S.settingBtnOutline }} onClick={() => onSignOut && onSignOut()}>
+          Sign out
+        </button>
+      </section>
+
+      <div style={S.settingsFootnote}>
+        Coming soon: connect your Google account to sync across all your devices.
+      </div>
+    </>
+  );
+}
+
+/* ============================================================
+   SEATING VIEW
+   ------------------------------------------------------------
+   Visual floor plan. Guests come from the real guest list.
+   Seating is stored as { [tableId]: [guestId, ...] } on each table.
+   Interaction: tap a guest then tap a table (always works), OR
+   drag a guest chip onto a table (pointer-based so it doesn't
+   fight page scroll on touch).
+   ============================================================ */
+
+function SeatingView({ state, update }) {
+  const [selectedGuest, setSelectedGuest] = useState(null); // guestId staged for tap-assign
+
+  const tables = state.tables || [];
+  const guests = state.guests || [];
+
+  // Which table each guest is at (or null).
+  const seatOf = {};
+  for (const t of tables) for (const gid of t.seated || []) seatOf[gid] = t.id;
+  const unseated = guests.filter((g) => !seatOf[g.id]);
+  const seatedCount = guests.length - unseated.length;
+
+  /* ---- table mutations ---- */
+  const addTable = () =>
+    update((s) => {
+      const n = (s.tables?.length || 0) + 1;
+      if (!s.tables) s.tables = [];
+      s.tables.push({ id: uid(), name: `Table ${n}`, capacity: 8, seated: [] });
+      return s;
+    });
+  const editTable = (id, patch) =>
+    update((s) => { const t = s.tables.find((x) => x.id === id); if (t) Object.assign(t, patch); return s; });
+  const removeTable = (id) =>
+    update((s) => { s.tables = s.tables.filter((x) => x.id !== id); return s; });
+
+  /* ---- seating mutations ---- */
+  const assign = (guestId, tableId) =>
+    update((s) => {
+      for (const t of s.tables) t.seated = (t.seated || []).filter((gid) => gid !== guestId);
+      if (tableId) {
+        const t = s.tables.find((x) => x.id === tableId);
+        if (t) t.seated.push(guestId);
+      }
+      return s;
+    });
+
+  const guestById = (id) => guests.find((g) => g.id === id);
+  const rsvpDot = (g) =>
+    g.rsvp === "Yes" ? "#5c7a59" : g.rsvp === "No" ? "#c2566b" : g.rsvp === "Maybe" ? "#a8862f" : "#b07a72";
+
+  // Group the unseated guests by their Group/side, preserving the order
+  // groups were defined in, with anyone ungrouped last.
+  const groupedUnseated = (() => {
+    const buckets = new Map();
+    for (const g of unseated) {
+      const key = g.group || "Ungrouped";
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(g);
+    }
+    const order = [...(state.groupOptions || []), "Ungrouped"];
+    return [...buckets.entries()].sort(
+      (a, b) => (order.indexOf(a[0]) + 1 || 999) - (order.indexOf(b[0]) + 1 || 999)
+    );
+  })();
+
+  /* ---- tap to assign ---- */
+  const onGuestTap = (guestId) => setSelectedGuest((cur) => (cur === guestId ? null : guestId));
+  const onTableTap = (tableId) => {
+    if (selectedGuest) { assign(selectedGuest, tableId); setSelectedGuest(null); }
+  };
+  const selectedName = selectedGuest ? (guestById(selectedGuest)?.name || "guest") : null;
+
+  return (
+    <>
+      <header style={S.header}>
+        <div style={S.kicker}>The Wedding</div>
+        <h1 style={S.title}>Seating</h1>
+      </header>
+
+      <section style={S.dashboard}>
+        <div style={S.progressRow}>
+          <span style={S.progressBig}>{seatedCount} of {guests.length}</span>
+          <span style={S.progressSmall}>guests seated</span>
+        </div>
+        <p style={{ ...S.settingHint, textAlign: "center", marginTop: 10 }}>
+          Tap a guest below, then tap a table to seat them. Tap a seated name to remove them.
+        </p>
+      </section>
+
+      {guests.length === 0 && (
+        <div style={S.emptyNote}>Add guests on the Guests tab first — they'll appear here to seat.</div>
+      )}
+
+      {/* TABLES */}
+      <div style={S.tableGrid}>
+        {tables.map((t) => {
+          const over = t.seated.length;
+          const full = over > t.capacity;
+          const armed = !!selectedGuest; // a guest is staged, so tables are tap targets
+          return (
+            <div key={t.id}
+              onClick={() => onTableTap(t.id)}
+              style={{
+                ...S.table,
+                borderColor: full ? "#c2566b" : armed ? "#c98b94" : "#e9d3cd",
+                boxShadow: armed ? "0 0 0 3px rgba(201,139,148,0.22)" : S.table.boxShadow,
+                cursor: armed ? "pointer" : "default",
+              }}>
+              <div style={S.tableTopRow}>
+                <input style={S.tableName} value={t.name} onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => editTable(t.id, { name: e.target.value })} />
+                <button style={S.tableRemove} onClick={(e) => { e.stopPropagation(); removeTable(t.id); }}>×</button>
+              </div>
+
+              <div style={S.tableCircle}>
+                <span style={{ ...S.tableCount, color: full ? "#c2566b" : "#6b4a45" }}>{over}/{t.capacity}</span>
+              </div>
+
+              <div style={S.seatedList}>
+                {t.seated.map((gid) => {
+                  const g = guestById(gid);
+                  if (!g) return null;
+                  return (
+                    <span key={gid} style={S.seatedChip} onClick={(e) => { e.stopPropagation(); assign(gid, null); }}>
+                      <span style={{ ...S.dot, background: rsvpDot(g) }} />
+                      {g.name || "Unnamed"} <span style={S.chipX}>×</span>
+                    </span>
+                  );
+                })}
+                {t.seated.length === 0 && <span style={S.seatHint}>{armed ? "Tap to seat here" : "Empty"}</span>}
+              </div>
+
+              <div style={S.capRow} onClick={(e) => e.stopPropagation()}>
+                <span style={S.smallLabel}>Seats</span>
+                <input type="number" inputMode="numeric" min="1" style={S.capInput}
+                  value={t.capacity} onChange={(e) => editTable(t.id, { capacity: Math.max(1, Number(e.target.value) || 1) })} />
+              </div>
+
+              <select
+                value=""
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => { if (e.target.value) { assign(e.target.value, t.id); e.target.value = ""; } }}
+                style={S.tableAddSelect}>
+                <option value="">+ Add guest…</option>
+                {groupedUnseated.map(([groupName, members]) => (
+                  <optgroup key={groupName} label={groupName}>
+                    {members.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name || "Unnamed"}{Number(g.party) > 1 ? ` +${g.party - 1}` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+          );
+        })}
+
+        <button style={S.addTable} onClick={addTable}>+ Add table</button>
+      </div>
+
+      {/* UNSEATED TRAY */}
+      <div style={S.tray}>
+        <div style={S.smallLabel}>Unseated guests ({unseated.length})</div>
+        {unseated.length === 0 && guests.length > 0 && (
+          <div style={{ ...S.trayChips, marginTop: 10 }}><span style={S.seatHint}>Everyone's seated 🎉</span></div>
+        )}
+        {groupedUnseated.map(([groupName, members]) => (
+          <div key={groupName} style={S.traySection}>
+            <div style={S.traySectionHead}>{groupName} <span style={S.traySectionCount}>{members.length}</span></div>
+            <div style={S.trayChips}>
+              {members.map((g) => (
+                <span key={g.id}
+                  onClick={() => onGuestTap(g.id)}
+                  style={{
+                    ...S.guestChip,
+                    borderColor: selectedGuest === g.id ? "#c98b94" : "#ead7d1",
+                    background: selectedGuest === g.id ? "#c98b94" : "#fff",
+                    color: selectedGuest === g.id ? "#fff" : "#6b4a45",
+                  }}>
+                  <span style={{ ...S.dot, background: selectedGuest === g.id ? "#fff" : rsvpDot(g) }} />
+                  {g.name || "Unnamed"}{Number(g.party) > 1 ? ` +${g.party - 1}` : ""}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* floating "now seating" banner */}
+      {selectedGuest && (
+        <div style={S.seatingBanner}>
+          Seating <strong>{selectedName}</strong> — tap a table
+          <button style={S.seatingCancel} onClick={() => setSelectedGuest(null)}>Cancel</button>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ============================================================
+   STYLES
+   ============================================================ */
+
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Outfit:wght@300;400;500;600&display=swap');
+  * { box-sizing: border-box; }
+  input { font-family: 'Outfit', sans-serif; outline: none; border: none; background: transparent; -webkit-appearance: none; }
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  button { cursor: pointer; font-family: 'Outfit', sans-serif; border: none; }
+  @media (max-width: 520px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 16px 12px !important; }
+  }
+`;
+
+const S = {
+  page: { fontFamily: "'Outfit', sans-serif", background: "#fbf6f3", minHeight: "100vh", color: "#3a2e2c", maxWidth: 860, margin: "0 auto", position: "relative" },
+  scroll: { padding: "28px 16px 120px" },
+
+  header: { textAlign: "center", marginBottom: 24 },
+  kicker: { letterSpacing: "0.35em", textTransform: "uppercase", fontSize: 11, color: "#b58e87", marginBottom: 6 },
+  title: { fontFamily: "'Fraunces', serif", fontSize: "clamp(34px, 9vw, 46px)", fontWeight: 600, margin: 0, fontStyle: "italic", color: "#6b4a45" },
+
+  dashboard: { background: "#fff", borderRadius: 20, padding: 22, marginBottom: 24, boxShadow: "0 10px 40px -20px rgba(150,100,95,0.4)", border: "1px solid #f0e2dd" },
+  totalRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" },
+  totalLabel: { fontFamily: "'Fraunces', serif", fontSize: 20, color: "#6b4a45" },
+  totalInputWrap: { display: "flex", alignItems: "baseline", background: "#fbf6f3", borderRadius: 12, padding: "8px 14px", flex: "1 1 auto", justifyContent: "flex-end", maxWidth: 200 },
+  dollar: { color: "#b58e87", fontSize: 20, marginRight: 2 },
+  totalInput: { fontFamily: "'Fraunces', serif", fontSize: 26, fontWeight: 600, color: "#6b4a45", width: "100%", maxWidth: 140, textAlign: "right" },
+  dateInput: { background: "#fbf6f3", borderRadius: 12, padding: "10px 14px", fontSize: 16, color: "#6b4a45", fontWeight: 500 },
+
+  bar: { height: 12, background: "#f0e2dd", borderRadius: 99, overflow: "hidden", marginBottom: 16 },
+  barFill: { height: "100%", borderRadius: 99, transition: "width 0.4s ease" },
+
+  stats: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 },
+  statBox: { textAlign: "center" },
+  statLabel: { fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#b58e87", marginBottom: 4 },
+  statValue: { fontFamily: "'Fraunces', serif", fontSize: "clamp(18px, 5vw, 22px)", fontWeight: 600 },
+  allocNote: { marginTop: 16, textAlign: "center", fontSize: 13, color: "#a8862f" },
+  committedBox: { marginTop: 18, background: "#fbf2ef", borderRadius: 12, padding: "14px 16px" },
+  committedTop: { display: "flex", justifyContent: "space-between", alignItems: "baseline" },
+  committedLabel: { fontFamily: "'Fraunces', serif", fontSize: 16, color: "#6b4a45", fontWeight: 600 },
+  committedValue: { fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 600, color: "#b07a72" },
+  committedHint: { fontSize: 12, color: "#b58e87", marginTop: 2 },
+  owedList: { marginTop: 10, display: "flex", flexDirection: "column", gap: 6 },
+  owedRow: { display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 14, paddingTop: 6, borderTop: "1px solid #f0ddd6" },
+  owedName: { color: "#3a2e2c" },
+  owedAmt: { color: "#b07a72", fontWeight: 500 },
+
+  progressRow: { display: "flex", alignItems: "baseline", gap: 8, justifyContent: "center" },
+  progressBig: { fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 600, color: "#6b4a45" },
+  progressSmall: { fontSize: 13, color: "#b58e87" },
+
+  card: { background: "#fff", borderRadius: 16, marginBottom: 12, border: "1px solid #f0e2dd", overflow: "hidden" },
+  cardHead: { display: "flex", alignItems: "flex-start", gap: 10, padding: "16px 18px", cursor: "pointer" },
+  chevron: { color: "#c98b94", fontSize: 22, lineHeight: 1.2, transition: "transform 0.2s", display: "inline-block", flexShrink: 0 },
+  catMain: { flex: 1, minWidth: 0 },
+  catName: { fontFamily: "'Fraunces', serif", fontSize: 18, color: "#6b4a45", fontWeight: 600, width: "100%", marginBottom: 6 },
+  catNumbers: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  catSpent: { fontWeight: 600, color: "#3a2e2c", fontSize: 15 },
+  catOf: { color: "#b58e87", fontSize: 14 },
+  diffPill: { fontSize: 12, padding: "3px 10px", borderRadius: 99, fontWeight: 500, whiteSpace: "nowrap" },
+
+  bucketLabel: { fontFamily: "'Fraunces', serif", fontSize: 18, color: "#6b4a45", fontWeight: 600, marginBottom: 4 },
+  bucketCount: { fontSize: 13, color: "#b58e87" },
+
+  cardBody: { padding: "4px 18px 18px", borderTop: "1px solid #f7ece8" },
+  allocEdit: { display: "flex", alignItems: "center", gap: 12, padding: "14px 0", flexWrap: "wrap" },
+  smallLabel: { fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b58e87" },
+  miniInputWrap: { display: "flex", alignItems: "center", background: "#fbf6f3", borderRadius: 8, padding: "6px 10px" },
+  miniDollar: { color: "#b58e87", marginRight: 2 },
+  miniInput: { width: 90, fontWeight: 600, color: "#6b4a45", fontSize: 15 },
+  deleteCat: { marginLeft: "auto", background: "transparent", color: "#c2566b", fontSize: 13 },
+
+  expItem: { background: "#fdfaf8", borderRadius: 10, padding: "10px 12px", marginBottom: 8, border: "1px solid #f4e7e2" },
+  expItemTop: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 },
+  expDesc: { flex: 1, fontSize: 15, fontWeight: 500, color: "#3a2e2c" },
+  expDelete: { width: 26, height: 26, borderRadius: "50%", background: "#f7ece8", color: "#c2566b", fontSize: 17, lineHeight: 1, flexShrink: 0 },
+  expItemBottom: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  expAmtWrap: { display: "flex", alignItems: "center", background: "#fff", borderRadius: 8, padding: "7px 10px", border: "1px solid #f0e2dd", flex: "1 1 100px" },
+  expAmt: { width: "100%", fontSize: 15, fontWeight: 600, color: "#3a2e2c" },
+  expDate: { fontSize: 14, padding: "7px 10px", borderRadius: 8, background: "#fff", color: "#3a2e2c", border: "1px solid #f0e2dd", flex: "1 1 130px" },
+  statusToggle: { fontSize: 13, padding: "7px 14px", borderRadius: 99, fontWeight: 500, flexShrink: 0 },
+  statusToggleWide: { fontSize: 14, padding: "10px", borderRadius: 10, fontWeight: 500, width: "100%" },
+
+  addBox: { background: "#fbf2ef", borderRadius: 12, padding: 14, marginTop: 10, border: "1px dashed #e3c4bd" },
+  addBoxLabel: { fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b58e87", marginBottom: 10 },
+  addDesc: { width: "100%", fontSize: 15, padding: "11px 12px", borderRadius: 10, background: "#fff", color: "#3a2e2c", border: "1px solid #f0e2dd", marginBottom: 8 },
+  addRow: { display: "flex", gap: 8, marginBottom: 8 },
+  addBtn: { width: "100%", padding: 13, borderRadius: 10, background: "#c98b94", color: "#fff", fontSize: 15, fontWeight: 600, marginTop: 2, transition: "opacity 0.2s" },
+  addCat: { width: "100%", padding: 14, borderRadius: 12, background: "transparent", border: "1.5px dashed #d9b8b2", color: "#b58e87", fontSize: 15, marginTop: 4 },
+
+  /* checklist tasks */
+  taskItem: { borderBottom: "1px solid #f7ece8", padding: "10px 0" },
+  taskTop: { display: "flex", alignItems: "center", gap: 10 },
+  check: { width: 24, height: 24, borderRadius: 7, border: "2px solid #d9b8b2", color: "#fff", fontSize: 14, lineHeight: 1, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
+  taskName: { flex: 1, fontSize: 15, color: "#3a2e2c" },
+  taskExpand: { width: 28, height: 28, borderRadius: "50%", background: "#fbf6f3", color: "#b58e87", fontSize: 16, lineHeight: 1, flexShrink: 0 },
+  taskDetail: { paddingLeft: 34, marginTop: 8 },
+  taskDetailRow: { display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap" },
+  taskDate: { fontSize: 14, padding: "6px 10px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c" },
+  taskDelete: { marginLeft: "auto", background: "transparent", color: "#c2566b", fontSize: 13 },
+  taskNote: { width: "100%", fontSize: 14, padding: "9px 11px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c" },
+  addTaskRow: { display: "flex", gap: 8, alignItems: "center", marginTop: 12 },
+  addTaskInput: { flex: 1, fontSize: 15, padding: "11px 12px", borderRadius: 10, background: "#fbf2ef", color: "#3a2e2c", border: "1px dashed #e3c4bd" },
+  expAdd: { width: 40, height: 40, borderRadius: "50%", background: "#c98b94", color: "#fff", fontSize: 20, lineHeight: 1, flexShrink: 0, transition: "opacity 0.2s" },
+
+  footer: { textAlign: "center", marginTop: 28, fontSize: 12, color: "#c4aaa4" },
+
+  /* welcome / sign-in */
+  welcomePage: { fontFamily: "'Outfit', sans-serif", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "32px 22px", background: "radial-gradient(120% 80% at 50% 0%, #fbeee9 0%, #fbf6f3 55%, #f6ebe6 100%)", color: "#3a2e2c" },
+  welcomeInner: { width: "100%", maxWidth: 420, textAlign: "center" },
+  welcomeKicker: { letterSpacing: "0.35em", textTransform: "uppercase", fontSize: 11, color: "#b58e87", marginBottom: 12 },
+  welcomeTitle: { fontFamily: "'Fraunces', serif", fontSize: "clamp(48px, 15vw, 68px)", fontWeight: 600, fontStyle: "italic", color: "#6b4a45", margin: "0 0 18px", lineHeight: 1 },
+  welcomeTag: { fontSize: 16, color: "#8a6d68", lineHeight: 1.6, margin: "0 auto 36px", maxWidth: 340 },
+  googleBtn: { width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "#fff", color: "#3a2e2c", fontSize: 16, fontWeight: 500, padding: "15px", borderRadius: 14, border: "1px solid #e9d3cd", boxShadow: "0 10px 30px -16px rgba(150,100,95,0.6)", cursor: "pointer" },
+  welcomeGhost: { width: "100%", background: "transparent", color: "#b07a72", fontSize: 14, padding: "14px", marginTop: 6, cursor: "pointer" },
+  welcomeFinePrint: { fontSize: 12, color: "#c4aaa4", lineHeight: 1.5, marginTop: 22, maxWidth: 320, marginLeft: "auto", marginRight: "auto" },
+
+  /* settings */
+  gearBtn: { position: "absolute", top: 20, right: 16, width: 40, height: 40, borderRadius: "50%", background: "#fff", border: "1px solid #f0e2dd", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, boxShadow: "0 6px 20px -12px rgba(150,100,95,0.5)" },
+  settingsHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, paddingTop: 4 },
+  backBtn: { width: 36, height: 36, borderRadius: "50%", background: "#fff", border: "1px solid #f0e2dd", display: "flex", alignItems: "center", justifyContent: "center" },
+  settingsTitle: { fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 600, fontStyle: "italic", color: "#6b4a45", margin: 0 },
+  settingHint: { fontSize: 13, color: "#b58e87", lineHeight: 1.5, margin: "4px 0 0" },
+  currencyPreview: { fontSize: 14, color: "#8a6d68", marginTop: 12, fontWeight: 500 },
+  settingBtn: { width: "100%", padding: 13, borderRadius: 10, background: "#c98b94", color: "#fff", fontSize: 15, fontWeight: 600, marginTop: 14, cursor: "pointer" },
+  settingBtnOutline: { background: "#fff", color: "#b07a72", border: "1.5px solid #e3c4bd" },
+  settingBtnDanger: { background: "#c2566b" },
+  confirmBox: { marginTop: 14 },
+  confirmText: { fontSize: 14, color: "#6b4a45", marginBottom: 10, fontWeight: 500 },
+  confirmRow: { display: "flex", gap: 10 },
+  settingsFootnote: { textAlign: "center", fontSize: 13, color: "#c4aaa4", marginTop: 8, lineHeight: 1.5 },
+
+  /* seating */
+  tableGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12, marginBottom: 18 },
+  table: { background: "#fff", border: "2px solid #e9d3cd", borderRadius: 16, padding: 12, display: "flex", flexDirection: "column", gap: 8, boxShadow: "0 6px 22px -16px rgba(150,100,95,0.5)", cursor: "pointer", transition: "box-shadow 0.15s, border-color 0.15s, background 0.15s" },
+  tableTopRow: { display: "flex", alignItems: "center", gap: 6 },
+  tableName: { flex: 1, fontFamily: "'Fraunces', serif", fontSize: 15, fontWeight: 600, color: "#6b4a45", minWidth: 0 },
+  tableRemove: { width: 22, height: 22, borderRadius: "50%", background: "#f7ece8", color: "#c2566b", fontSize: 14, lineHeight: 1, flexShrink: 0 },
+  tableCircle: { width: 64, height: 64, borderRadius: "50%", border: "2px dashed #e3c4bd", display: "flex", alignItems: "center", justifyContent: "center", alignSelf: "center", background: "#fdf7f4" },
+  tableCount: { fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 600 },
+  seatedList: { display: "flex", flexWrap: "wrap", gap: 5, minHeight: 24 },
+  seatedChip: { display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, background: "#fbf2ef", color: "#6b4a45", padding: "3px 8px", borderRadius: 99, cursor: "pointer" },
+  chipX: { color: "#c2566b", fontSize: 13, marginLeft: 1 },
+  seatHint: { fontSize: 12, color: "#c4aaa4", fontStyle: "italic" },
+  dot: { width: 7, height: 7, borderRadius: "50%", display: "inline-block", flexShrink: 0 },
+  capRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderTop: "1px solid #f7ece8", paddingTop: 8 },
+  capInput: { width: 50, fontSize: 14, fontWeight: 600, color: "#6b4a45", textAlign: "right", background: "#fbf6f3", borderRadius: 6, padding: "4px 8px" },
+  tableAddSelect: { width: "100%", fontSize: 13, fontFamily: "'Outfit', sans-serif", color: "#b07a72", background: "#fbf2ef", border: "1px dashed #e3c4bd", borderRadius: 8, padding: "8px 10px", cursor: "pointer", marginTop: 2 },
+  addTable: { border: "1.5px dashed #d9b8b2", borderRadius: 16, background: "transparent", color: "#b58e87", fontSize: 15, minHeight: 120, cursor: "pointer" },
+  tray: { background: "#fff", borderRadius: 16, border: "1px solid #f0e2dd", padding: 16, position: "sticky", bottom: 92, boxShadow: "0 -6px 24px -18px rgba(150,100,95,0.5)" },
+  trayChips: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  traySection: { marginTop: 14 },
+  traySectionHead: { fontSize: 12, fontWeight: 600, color: "#b07a72", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 7 },
+  traySectionCount: { background: "#f4e8e4", color: "#b07a72", fontSize: 11, padding: "1px 8px", borderRadius: 99, fontWeight: 600 },
+  guestChip: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 14, border: "1.5px solid #ead7d1", borderRadius: 99, padding: "8px 12px", cursor: "pointer", userSelect: "none", transition: "background 0.12s, color 0.12s, border-color 0.12s" },
+  seatingBanner: { position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 92, background: "#6b4a45", color: "#fff", fontSize: 14, padding: "12px 18px", borderRadius: 99, display: "flex", alignItems: "center", gap: 14, zIndex: 50, boxShadow: "0 12px 32px -12px rgba(80,50,45,0.7)", maxWidth: "92%" },
+  seatingCancel: { background: "rgba(255,255,255,0.18)", color: "#fff", fontSize: 13, padding: "5px 12px", borderRadius: 99, flexShrink: 0 },
+
+  /* home */
+  hero: { textAlign: "center", padding: "16px 0 28px" },
+  heroPhotoWrap: { position: "relative", borderRadius: 20, overflow: "hidden", marginBottom: 4, boxShadow: "0 14px 40px -22px rgba(150,100,95,0.7)" },
+  heroPhoto: { width: "100%", height: 240, objectFit: "cover", display: "block" },
+  heroPhotoRemove: { position: "absolute", top: 12, right: 12, width: 30, height: 30, borderRadius: "50%", background: "rgba(58,46,44,0.55)", color: "#fff", fontSize: 18, lineHeight: 1, backdropFilter: "blur(4px)" },
+  galleryHead: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  addPhotoBtn: { fontSize: 13, fontWeight: 500, color: "#fff", background: "#c98b94", padding: "8px 14px", borderRadius: 99, cursor: "pointer" },
+  galleryEmpty: { fontSize: 14, color: "#b58e87", lineHeight: 1.5 },
+  galleryGrid: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 },
+  galleryItem: { position: "relative", borderRadius: 12, overflow: "hidden", aspectRatio: "1 / 1" },
+  galleryImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  galleryRemove: { position: "absolute", top: 5, right: 5, width: 24, height: 24, borderRadius: "50%", background: "rgba(58,46,44,0.55)", color: "#fff", fontSize: 15, lineHeight: 1 },
+  bannerTag: { position: "absolute", bottom: 5, left: 5, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6b4a45", background: "rgba(255,255,255,0.9)", padding: "3px 7px", borderRadius: 6 },
+  heroNames: { fontFamily: "'Fraunces', serif", fontSize: "clamp(36px, 11vw, 56px)", fontWeight: 600, fontStyle: "italic", color: "#6b4a45", margin: "8px 0 10px", lineHeight: 1.05 },
+  heroDate: { fontSize: 15, color: "#b58e87", marginBottom: 16 },
+  countdownPill: { display: "inline-block", background: "linear-gradient(90deg,#d9a7a0,#c98b94)", color: "#fff", fontWeight: 600, fontSize: 15, padding: "9px 22px", borderRadius: 99, boxShadow: "0 8px 24px -10px rgba(201,139,148,0.7)" },
+  profileGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 12 },
+  visionInput: { width: "100%", fontSize: 15, padding: "11px 12px", borderRadius: 10, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd", marginTop: 5, fontFamily: "'Outfit', sans-serif", resize: "vertical" },
+  summaryGrid: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 },
+  summaryCard: { background: "#fff", borderRadius: 16, border: "1px solid #f0e2dd", padding: 18, textAlign: "left", display: "flex", flexDirection: "column", gap: 4, boxShadow: "0 6px 24px -18px rgba(150,100,95,0.5)", cursor: "pointer" },
+  summaryTop: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 },
+  summaryLabel: { fontSize: 13, textTransform: "uppercase", letterSpacing: "0.06em", color: "#b58e87", fontWeight: 500 },
+  summaryBig: { fontFamily: "'Fraunces', serif", fontSize: 26, fontWeight: 600, color: "#6b4a45" },
+  summarySub: { fontSize: 13, color: "#b58e87" },
+
+  /* vendors */
+  emptyNote: { textAlign: "center", color: "#b58e87", fontSize: 14, padding: "20px 16px", lineHeight: 1.5 },
+  vendorFields: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12, paddingTop: 14 },
+  field: { display: "flex", flexDirection: "column", gap: 5 },
+  fieldInput: { width: "100%", minWidth: 0, boxSizing: "border-box", fontSize: 15, padding: "9px 11px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd" },
+  fieldSelect: { width: "100%", minWidth: 0, boxSizing: "border-box", fontSize: 15, padding: "9px 11px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd", fontFamily: "'Outfit', sans-serif" },
+  vendorPaidLine: { fontSize: 13, color: "#b58e87", marginTop: 8, textAlign: "center" },
+  payLabel: { fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b58e87", marginTop: 18, marginBottom: 10 },
+  payHint: { textTransform: "none", letterSpacing: 0, color: "#c4aaa4", fontStyle: "italic" },
+  vendorTag: { fontSize: 12, color: "#b07a72", marginBottom: 6, marginLeft: 2 },
+
+  /* guests */
+  guestStats: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 },
+  headcountBox: { background: "#fbf2ef", borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 },
+  headcountNum: { fontFamily: "'Fraunces', serif", fontSize: 34, fontWeight: 600, color: "#6b4a45", lineHeight: 1 },
+  headcountLabel: { fontSize: 13, color: "#b58e87", lineHeight: 1.4 },
+  filterRow: { display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" },
+  searchWrap: { display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #f0e2dd", borderRadius: 12, padding: "10px 14px", marginBottom: 12 },
+  searchIcon: { color: "#c4aaa4", fontSize: 18, lineHeight: 1 },
+  searchInput: { flex: 1, fontSize: 15, color: "#3a2e2c" },
+  searchClear: { width: 24, height: 24, borderRadius: "50%", background: "#f7ece8", color: "#b07a72", fontSize: 16, lineHeight: 1, flexShrink: 0 },
+  filterPill: { fontSize: 13, padding: "7px 14px", borderRadius: 99, fontWeight: 500, border: "1px solid #f0e2dd", transition: "all 0.15s" },
+  optList: { marginTop: 10 },
+  optRow: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 },
+  optInput: { flex: 1, fontSize: 15, padding: "9px 11px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd" },
+
+  /* bottom nav */
+  nav: { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 860, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(10px)", borderTop: "1px solid #f0e2dd", display: "flex", justifyContent: "space-around", padding: "10px 0 14px", zIndex: 10 },
+  navBtn: { background: "transparent", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "4px 4px", flex: 1, transition: "color 0.2s" },
+  navIcon: { fontSize: 16, width: 38, height: 26, borderRadius: 99, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.2s" },
+  navLabel: { fontSize: 11, fontWeight: 500 },
+};
