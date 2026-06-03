@@ -40,7 +40,7 @@
     @media(max-width:640px){.nav-links a.muted{display:none;}}
 
     /* hero */
-    .hero{text-align:center;padding:84px 0 64px;}
+    .hero{text-align:center;padding-top:84px;padding-bottom:64px;}
     .kicker{letter-spacing:.22em;text-transform:uppercase;font-size:12px;
       color:var(--rose-deep);font-weight:700;}
     h1{font-size:60px;line-height:1.05;margin:16px 0 18px;font-weight:400;letter-spacing:-1px;}
@@ -50,7 +50,7 @@
     @media(max-width:640px){h1{font-size:42px;}}
 
     /* mock preview band */
-    .preview{margin:8px auto 0;max-width:880px;}
+    .preview{margin:8px 0 0;}
     .preview .frame{background:#fff;border:1px solid var(--line);border-radius:22px;
       padding:22px;box-shadow:0 30px 60px -30px rgba(140,90,85,.4);}
     .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
@@ -60,7 +60,7 @@
     @media(max-width:640px){.stat-row{grid-template-columns:repeat(2,1fr);}}
 
     /* sections */
-    section.block{padding:72px 0;}
+    section.block{padding-top:72px;padding-bottom:72px;}
     .eyebrow{text-align:center;letter-spacing:.18em;text-transform:uppercase;
       font-size:12px;color:var(--rose-deep);font-weight:700;}
     h2{text-align:center;font-size:36px;font-weight:400;margin:10px 0 8px;letter-spacing:-.5px;}
@@ -85,7 +85,7 @@
 
     /* data / google section (reviewer info) */
     .data{background:#fff;border:1px solid var(--line);border-radius:24px;
-      padding:44px;max-width:880px;margin:0 auto;}
+      padding:44px;}
     .data h2{text-align:left;}
     .data .sub{text-align:left;margin:0 0 24px;}
     .pill{display:inline-flex;align-items:center;gap:8px;background:#f1efe9;border:1px solid #e3ddd2;
@@ -100,19 +100,52 @@
     @media(max-width:640px){.data{padding:28px;}}
 
     /* final cta */
-    .final{text-align:center;padding:80px 0;}
+    .final{text-align:center;padding-top:80px;padding-bottom:80px;}
     .final h2{margin-bottom:14px;}
     .final p{color:var(--soft);margin:0 auto 28px;max-width:520px;}
 
     /* footer */
     footer{border-top:1px solid var(--line);background:#fbf2ef;}
     .foot-inner{display:flex;justify-content:space-between;align-items:flex-start;
-      gap:24px;padding:40px 0;flex-wrap:wrap;}
+      gap:48px;padding:60px 16px 48px;flex-wrap:wrap;}
     .foot-brand{font-weight:700;}
-    .foot-col{display:flex;flex-direction:column;gap:8px;font-size:14px;}
+    .foot-col{display:flex;flex-direction:column;gap:12px;font-size:14px;}
     .foot-col a{color:var(--soft);}
     .foot-col a:hover{color:var(--ink);}
-    .copy{width:100%;border-top:1px solid var(--line);padding:18px 0;font-size:13px;color:var(--soft);}
+    .copy{width:100%;border-top:1px solid var(--line);padding:26px 0;font-size:13px;color:var(--soft);}
+
+    /* ---- mobile refinements ---- */
+    @media(max-width:768px){
+      .wrap{padding:0 18px;}
+      .nav-inner{height:58px;}
+      .hero{padding-top:54px;padding-bottom:42px;}
+      h1{font-size:40px;}
+      .hero p.lead{font-size:18px;}
+      section.block{padding-top:52px;padding-bottom:52px;}
+      h2{font-size:29px;}
+      .sub{margin-bottom:34px;}
+      .data{padding:26px;border-radius:20px;}
+      .final{padding-top:56px;padding-bottom:56px;}
+      .preview .frame{padding:16px;}
+    }
+    @media(max-width:560px){
+      h1{font-size:33px;}
+      .hero{padding-top:42px;padding-bottom:36px;}
+      .hero p.lead{font-size:16px;}
+      .hero-cta{flex-direction:column;}
+      .hero-cta .btn{width:100%;justify-content:center;}
+      .btn{padding:13px 22px;}              /* larger tap targets */
+      .stat-row{gap:10px;}
+      .stat{padding:13px;}
+      .stat .val{font-size:18px;}
+      .feature{padding:22px;}
+      h2{font-size:26px;}
+      .data{padding:22px;}
+      .data .links{flex-direction:column;gap:12px;}
+      .data .scopebox{padding:15px 16px;}
+      .data code{word-break:break-word;}
+      .foot-inner{flex-direction:column;gap:34px;padding:48px 22px 40px;}
+    }
   </style>
 </head>
 <body>
@@ -229,7 +262,7 @@
         <a href="/privacy.html">Privacy Policy</a>
         <a href="mailto:plannerstorebymaki@gmail.com">plannerstorebymaki@gmail.com</a>
       </div>
-      <div class="copy wrap">© 2026 Planourdays · planourdays.com</div>
+      <div class="copy">© 2026 Planourdays · planourdays.com</div>
     </div>
   </footer>
 </body>
