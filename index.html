@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#fbf6f3" />
+  <link rel="icon" type="image/png" href="/logo.png" />
+  <link rel="apple-touch-icon" href="/logo.png" />
   <title>Planourdays — A calm, all-in-one wedding planner</title>
   <meta name="description" content="Planourdays is a beautiful wedding planner for your budget, checklist, guests, vendors and seating — with optional private sync to your own Google Drive." />
   <style>
@@ -27,6 +29,8 @@
     .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:-.2px;}
     .brand .dot{width:22px;height:22px;border-radius:50%;
       background:linear-gradient(135deg,#e6b3ab,#b07a72);}
+    .brand-logo{height:40px;width:auto;display:block;}
+    .brand-name{font-size:21px;font-weight:600;color:var(--ink);letter-spacing:-.3px;}
     .nav-links{display:flex;align-items:center;gap:28px;}
     .nav-links a.muted{color:var(--soft);font-size:15px;}
     .nav-links a.muted:hover{color:var(--ink);}
@@ -40,7 +44,8 @@
     @media(max-width:640px){.nav-links a.muted{display:none;}}
 
     /* hero */
-    .hero{text-align:center;padding-top:84px;padding-bottom:64px;}
+    .hero{text-align:center;padding-top:72px;padding-bottom:64px;}
+    .hero-logo{display:block;margin:0 auto 22px;width:240px;max-width:64%;height:auto;}
     .kicker{letter-spacing:.22em;text-transform:uppercase;font-size:12px;
       color:var(--rose-deep);font-weight:700;}
     h1{font-size:60px;line-height:1.05;margin:16px 0 18px;font-weight:400;letter-spacing:-1px;}
@@ -130,7 +135,9 @@
     }
     @media(max-width:560px){
       h1{font-size:33px;}
-      .hero{padding-top:42px;padding-bottom:36px;}
+      .brand-logo{height:38px;}
+      .hero-logo{width:188px;}
+      .hero{padding-top:36px;padding-bottom:36px;}
       .hero p.lead{font-size:16px;}
       .hero-cta{flex-direction:column;}
       .hero-cta .btn{width:100%;justify-content:center;}
@@ -151,7 +158,7 @@
 <body>
   <nav>
     <div class="wrap nav-inner">
-      <div class="brand"><span class="dot"></span> Planourdays</div>
+      <div class="brand"><img src="/logo-mark.png" alt="Planourdays" class="brand-logo" /></div>
       <div class="nav-links">
         <a class="muted" href="#features">Features</a>
         <a class="muted" href="#how">How it works</a>
@@ -162,8 +169,7 @@
   </nav>
 
   <header class="hero wrap">
-    <div class="kicker">Wedding Planner</div>
-    <h1 class="serif">Plan Our Days.</h1>
+    <img src="/logo.png" alt="Planourdays — Wedding App" class="hero-logo" />
     <p class="lead">A calm, all-in-one wedding planner.</p>
     <div class="hero-cta">
       <a class="btn btn-primary" href="/login">Start planning →</a>

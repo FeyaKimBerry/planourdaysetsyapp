@@ -310,6 +310,10 @@ export default function WeddingPlanner() {
     <div style={S.page}>
       <style>{CSS}</style>
 
+      <button style={S.appLogoBtn} onClick={() => setTab("home")} aria-label="Home">
+        <img src="/logo-mark.png" alt="Planourdays" style={S.appLogoImg} />
+      </button>
+
       {tab !== "settings" && (
         <button style={S.gearBtn} onClick={() => setTab("settings")} aria-label="Settings">
           <Icon name="gear" size={22} color="#b07a72" />
@@ -395,7 +399,8 @@ function WelcomeView({ onEnter }) {
     <div style={S.welcomePage}>
       <style>{CSS}</style>
       <div style={S.welcomeInner}>
-        <div style={S.welcomeKicker}>Wedding Planner</div>
+        <img src="/logo.png" alt="Planourdays — Wedding App"
+          style={{ width: 200, maxWidth: "72%", height: "auto", display: "block", margin: "0 auto 10px" }} />
         <h1 style={S.welcomeTitle}>Planourdays</h1>
         <p style={S.welcomeTag}>
           Budget, checklist, guests, vendors and seating — every part of your big day, in one calm place.
@@ -1885,7 +1890,7 @@ const CSS = `
 
 const S = {
   page: { fontFamily: "'Outfit', sans-serif", background: "#fbf6f3", minHeight: "100vh", color: "#3a2e2c", maxWidth: 860, margin: "0 auto", position: "relative" },
-  scroll: { padding: "28px 16px 120px" },
+  scroll: { padding: "74px 16px 120px" },
 
   header: { textAlign: "center", marginBottom: 24 },
   kicker: { letterSpacing: "0.35em", textTransform: "uppercase", fontSize: 11, color: "#b58e87", marginBottom: 6 },
@@ -1989,6 +1994,8 @@ const S = {
 
   /* settings */
   gearBtn: { position: "absolute", top: 20, right: 16, width: 40, height: 40, borderRadius: "50%", background: "#fff", border: "1px solid #f0e2dd", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, boxShadow: "0 6px 20px -12px rgba(150,100,95,0.5)" },
+  appLogoBtn: { position: "absolute", top: 18, left: 16, height: 42, display: "flex", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", zIndex: 5 },
+  appLogoImg: { height: 38, width: "auto", display: "block" },
   settingsHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, paddingTop: 4 },
   backBtn: { width: 36, height: 36, borderRadius: "50%", background: "#fff", border: "1px solid #f0e2dd", display: "flex", alignItems: "center", justifyContent: "center" },
   settingsTitle: { fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 600, fontStyle: "italic", color: "#6b4a45", margin: 0 },
