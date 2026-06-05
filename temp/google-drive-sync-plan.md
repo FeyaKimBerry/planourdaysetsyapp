@@ -25,7 +25,18 @@ Priority right now: **get OAuth verification done.** Update this as we go.
       - netlify.toml: removed old SPA catch-all (app has no client-side router);
         added /login -> /login.html rewrite.
       - [x] Build verified locally (npm run build) -> dist has index/login/privacy.html.
-      - [ ] Deploy to Netlify so all three pages are live
+      - [x] All changes committed + pushed to GitHub: FeyaKimBerry/planourdaysetsyapp (main).
+            (Harness auto-commits/pushes; main == origin/main.)
+      - [x] Logos added: public/logo.png (full, hero+login) and public/logo-mark.png
+            (nav corners + top-left of all app pages). Nav/hero text removed per user.
+      - [x] Terms of Service page added: public/terms.html -> /terms.html, linked in
+            homepage footer + privacy page. (Governing law assumed = Australia; user to review.)
+      - NOTE: Netlify project = "profound-vacherin-265735", deploys from GitHub,
+        custom domain planourdays.com ALREADY connected + SSL secured. Domain step DONE.
+        Consent screen URLs to use: home https://planourdays.com ,
+        privacy https://planourdays.com/privacy.html , terms https://planourdays.com/terms.html
+      - [ ] Confirm Netlify project is git-connected to that repo + latest deploy succeeded
+      - [ ] Verify live: <site>.netlify.app  (/, /login, /privacy.html)
       - [ ] Connect custom domain planourdays.com to the Netlify site
             (add CNAME/A record in Cloudflare DNS pointing at Netlify)
       - Live URLs needed: https://planourdays.com  and  https://planourdays.com/privacy.html
