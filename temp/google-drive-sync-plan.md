@@ -1,6 +1,10 @@
 # Google Drive Sync — Requirements & Decisions
 
-Status: **planning only, no code written yet**
+Status: **sync code implemented (2026-06-05)** — pure client-side OAuth (PKCE-less
+GIS token flow) + Drive REST against appDataFolder. See `src/googleDrive.js` and the
+wiring in `src/App.jsx` (auth gate, silent refresh + pull-reconcile on load,
+debounced push, last-write-wins). Remaining work is Google Cloud / verification ops,
+not code. Set `VITE_GOOGLE_CLIENT_ID` (see `.env.example`) to activate.
 Date captured: 2026-06-02
 Branch context: `feature/pdf-export` (sync work to come later)
 

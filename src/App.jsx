@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import * as drive from "./googleDrive";
 
 /* ============================================================
    STORAGE ADAPTER LAYER
@@ -158,6 +159,9 @@ const CHECKLIST_BUCKETS = [
 
 function makeInitialState() {
   return {
+    // Sync bookkeeping for last-write-wins reconciliation across devices.
+    updatedAt: 0,
+    rev: 0,
     partner1: "",
     partner2: "",
     weddingDate: "",
@@ -249,6 +253,8 @@ function hydrate(loaded) {
   return {
     ...base,
     ...loaded,
+    updatedAt: loaded.updatedAt || base.updatedAt,
+    rev: loaded.rev || base.rev,
     categories: loaded.categories || base.categories,
     checklist: loaded.checklist || base.checklist,
     vendors: loaded.vendors || base.vendors,
@@ -258,6 +264,17 @@ function hydrate(loaded) {
     currency: loaded.currency || base.currency,
     tables: loaded.tables || base.tables,
   };
+}
+
+// Last-write-wins: newer updatedAt wins; rev breaks same-timestamp ties.
+function reconcile(local, remote) {
+  if (!remote) return local;
+  if (!local) return remote;
+  const lu = local.updatedAt || 0;
+  const ru = remote.updatedAt || 0;
+  if (ru > lu) return remote;
+  if (ru < lu) return local;
+  return (remote.rev || 0) > (local.rev || 0) ? remote : local;
 }
 
 const RSVP_STATUSES = ["Invited", "Yes", "No", "Maybe"];
@@ -286,24 +303,138 @@ function vendorExpenses(state, vendorId) {
    ROOT — shell + bottom nav
    ============================================================ */
 
+// Footer text per sync state when Google Drive is connected.
+const SYNC_LABEL = {
+  idle: "Synced to your Google Drive",
+  syncing: "Saving to your Google Drive…",
+  synced: "Synced to your Google Drive",
+  offline: "Offline · changes will sync when you're back online",
+  error: "Couldn't sync just now · we'll keep trying",
+};
+
+// Brief splash while we silently restore a previous Google session on load.
+function BootingView() {
+  return (
+    <div style={S.welcomePage}>
+      <style>{CSS}</style>
+      <div style={{ ...S.welcomeInner, opacity: 0.9 }}>
+        <img src="/logo.png" alt="Planourdays" style={{ width: 160, maxWidth: "60%", height: "auto", display: "block", margin: "0 auto 18px" }} />
+        <p style={S.welcomeTag}>Reconnecting your plan…</p>
+      </div>
+    </div>
+  );
+}
+
 export default function WeddingPlanner() {
   const [state, setState] = useState(() => hydrate(storage.load()));
   const [tab, setTab] = useState("home");
-  // In-memory only: the welcome screen shows each launch. When real Google
-  // auth lands (Stage B), this becomes a true signed-in session.
+  // entered = past the welcome screen; connected = Google Drive is linked.
   const [entered, setEntered] = useState(false);
+  const [connected, setConnected] = useState(false);
+  // idle | syncing | synced | offline | error — drives the footer indicator.
+  const [syncStatus, setSyncStatus] = useState("idle");
+  // True only while we silently restore a previous Google session on first load.
+  const [booting, setBooting] = useState(
+    () => drive.isConfigured() && drive.isConnected()
+  );
 
+  const pushTimer = useRef(null);
+  const didMount = useRef(false);
+
+  // First load: if the user linked Google before, restore the session silently
+  // (no UI) and reconcile the Drive copy with the local copy (last-write-wins).
+  useEffect(() => {
+    if (!(drive.isConfigured() && drive.isConnected())) return;
+    let cancelled = false;
+    (async () => {
+      const token = await drive.silentRefresh();
+      if (cancelled) return;
+      if (!token) {
+        // Session lapsed — show the welcome screen so they can re-consent.
+        setBooting(false);
+        return;
+      }
+      try {
+        const remote = await drive.pull();
+        if (cancelled) return;
+        setState((local) => reconcile(local, remote ? hydrate(remote) : null));
+        setSyncStatus("synced");
+      } catch {
+        setSyncStatus("offline"); // linked, but Drive unreachable right now
+      }
+      if (cancelled) return;
+      setConnected(true);
+      setEntered(true);
+      setBooting(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Persist on every change: localStorage immediately, Drive debounced (~2.5s).
+  // `state` already carries its edit-time updatedAt/rev (stamped by the mutators
+  // below), so reconciliation compares real edit times, not save times.
   useEffect(() => {
     storage.save(state);
-  }, [state]);
 
-  const update = useCallback((fn) => setState((s) => fn(structuredClone(s))), []);
+    if (!didMount.current) { didMount.current = true; return; }
+    if (!connected) return;
+
+    setSyncStatus("syncing");
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => {
+      drive
+        .push(state)
+        .then(() => setSyncStatus("synced"))
+        .catch(() => setSyncStatus("error"));
+    }, 2500);
+  }, [state, connected]);
+
+  // Stamp every user edit with an edit time + rev so last-write-wins works
+  // across devices. Reconcile results (from pull) deliberately keep their own
+  // timestamp, so they use the raw setState, not this.
+  const stamp = (s) => { s.updatedAt = Date.now(); s.rev = (s.rev || 0) + 1; return s; };
+  const update = useCallback((fn) => setState((s) => stamp(fn(structuredClone(s)))), []);
+  // Wraps import/reset in SettingsView so those count as fresh edits and win.
+  const setStateStamped = useCallback((next) => setState(stamp({ ...next })), []);
 
   // Keep the module-level currency in sync so every fmt() call reflects the setting.
   CURRENT_CURRENCY = state.currency || "AUD";
 
+  // Interactive Google connect (welcome screen). Throws on failure/cancel so
+  // WelcomeView can surface the error.
+  const handleGoogleSignIn = async () => {
+    await drive.signIn();
+    try {
+      const remote = await drive.pull();
+      setState((local) => reconcile(local, remote ? hydrate(remote) : null));
+    } catch {
+      // Couldn't read Drive this moment; the debounced push will sync soon.
+    }
+    setConnected(true);
+    setTab("home");
+    setEntered(true);
+  };
+
+  const enterLocalOnly = () => { setTab("home"); setEntered(true); };
+
+  const handleSignOut = () => {
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    drive.signOut();
+    setConnected(false);
+    setSyncStatus("idle");
+    setEntered(false);
+  };
+
+  if (booting) return <BootingView />;
+
   if (!entered) {
-    return <WelcomeView onEnter={() => { setTab("home"); setEntered(true); }} />;
+    return (
+      <WelcomeView
+        configured={drive.isConfigured()}
+        onGoogleSignIn={handleGoogleSignIn}
+        onLocalOnly={enterLocalOnly}
+      />
+    );
   }
 
   return (
@@ -327,11 +458,13 @@ export default function WeddingPlanner() {
         {tab === "vendors" && <VendorsView state={state} update={update} />}
         {tab === "guests" && <GuestsView state={state} update={update} />}
         {tab === "seating" && <SeatingView state={state} update={update} />}
-        {tab === "settings" && <SettingsView state={state} update={update} setState={setState} go={setTab} onSignOut={() => setEntered(false)} />}
+        {tab === "settings" && <SettingsView state={state} update={update} setState={setStateStamped} go={setTab} connected={connected} onSignOut={handleSignOut} />}
 
         <footer style={S.footer}>
-          {PERSISTS
-            ? "Saved on this device · syncs across devices via Google Sheets in a later phase"
+          {connected
+            ? SYNC_LABEL[syncStatus] || "Synced to your Google Drive"
+            : PERSISTS
+            ? "Saved on this device · sign in to sync across devices"
             : "Preview mode · data won't persist here, but saving works in the deployed app"}
         </footer>
       </div>
@@ -378,9 +511,9 @@ function NavBtn({ active, onClick, icon, label }) {
 /* ============================================================
    WELCOME / SIGN-IN  (visual front door)
    ------------------------------------------------------------
-   Placeholder auth: "Sign in with Google" currently just enters
-   the app. When Stage B lands, this button triggers real Google
-   OAuth and becomes both the login and the storage connection.
+   "Sign in with Google" runs the real OAuth flow (drive.appdata
+   scope) and connects Drive sync. "Continue without signing in"
+   keeps the app local-only after a warning modal.
    ============================================================ */
 
 function GoogleG({ size = 18 }) {
@@ -394,7 +527,28 @@ function GoogleG({ size = 18 }) {
   );
 }
 
-function WelcomeView({ onEnter }) {
+function WelcomeView({ configured, onGoogleSignIn, onLocalOnly }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [warnLocal, setWarnLocal] = useState(false);
+
+  const signIn = async () => {
+    if (busy) return;
+    setError("");
+    setBusy(true);
+    try {
+      await onGoogleSignIn();
+    } catch (e) {
+      // popup_closed / access_denied / config errors all land here.
+      setError(
+        e && e.message && e.message.includes("configured")
+          ? "Google sign-in isn't set up yet. You can still continue without signing in."
+          : "Sign-in didn't complete. Please try again."
+      );
+      setBusy(false);
+    }
+  };
+
   return (
     <div style={S.welcomePage}>
       <style>{CSS}</style>
@@ -406,17 +560,42 @@ function WelcomeView({ onEnter }) {
           Budget, checklist, guests, vendors and seating — every part of your big day, in one calm place.
         </p>
 
-        <button style={S.googleBtn} onClick={onEnter}>
+        <button style={{ ...S.googleBtn, opacity: busy ? 0.6 : 1, cursor: busy ? "default" : "pointer" }} onClick={signIn} disabled={busy}>
           <GoogleG size={18} />
-          <span>Sign in with Google</span>
+          <span>{busy ? "Connecting…" : "Sign in with Google"}</span>
         </button>
 
-        <button style={S.welcomeGhost} onClick={onEnter}>Continue without signing in</button>
+        {error && <div style={S.welcomeError}>{error}</div>}
+
+        <button style={S.welcomeGhost} onClick={() => setWarnLocal(true)}>
+          Continue without signing in
+        </button>
 
         <div style={S.welcomeFinePrint}>
-          Signing in lets your plans sync across your devices and stay safe in your own Google account.
+          Signing in saves a private copy of your plan to a hidden folder in your
+          own Google Drive, so it syncs across your devices. Planourdays can't see
+          any of your other Drive files.
         </div>
       </div>
+
+      {warnLocal && (
+        <div style={S.modalOverlay} onClick={() => setWarnLocal(false)}>
+          <div style={S.modalCard} onClick={(e) => e.stopPropagation()}>
+            <h2 style={S.modalTitle}>Continue without signing in?</h2>
+            <p style={S.modalBody}>
+              Your plan will be saved only in this browser on this device. It
+              won't sync to your other devices or be backed up, and clearing your
+              browser data would erase it. We recommend signing in with Google.
+            </p>
+            <button style={S.modalPrimary} onClick={() => { setWarnLocal(false); signIn(); }}>
+              Sign in with Google
+            </button>
+            <button style={S.modalGhost} onClick={() => { setWarnLocal(false); onLocalOnly(); }}>
+              Continue without signing in
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1543,7 +1722,7 @@ function buildPlannerHtml(state) {
    SETTINGS VIEW
    ============================================================ */
 
-function SettingsView({ state, update, setState, go, onSignOut }) {
+function SettingsView({ state, update, setState, go, connected, onSignOut }) {
   const [confirmingReset, setConfirmingReset] = useState(false);
 
   const setCurrency = (code) => update((s) => { s.currency = code; return s; });
@@ -1660,15 +1839,15 @@ function SettingsView({ state, update, setState, go, onSignOut }) {
 
       <section style={S.dashboard}>
         <div style={S.smallLabel}>Account</div>
-        <p style={S.settingHint}>You'll return to the welcome screen. Your saved plans stay on this device.</p>
+        <p style={S.settingHint}>
+          {connected
+            ? "Your plan syncs to a private folder in your Google Drive. Signing out disconnects Drive and returns you to the welcome screen; your plan stays on this device."
+            : "You'll return to the welcome screen, where you can sign in with Google to sync across devices. Your saved plan stays on this device."}
+        </p>
         <button style={{ ...S.settingBtn, ...S.settingBtnOutline }} onClick={() => onSignOut && onSignOut()}>
-          Sign out
+          {connected ? "Disconnect Google & sign out" : "Sign out"}
         </button>
       </section>
-
-      <div style={S.settingsFootnote}>
-        Coming soon: connect your Google account to sync across all your devices.
-      </div>
     </>
   );
 }
@@ -1991,6 +2170,15 @@ const S = {
   googleBtn: { width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "#fff", color: "#3a2e2c", fontSize: 16, fontWeight: 500, padding: "15px", borderRadius: 14, border: "1px solid #e9d3cd", boxShadow: "0 10px 30px -16px rgba(150,100,95,0.6)", cursor: "pointer" },
   welcomeGhost: { width: "100%", background: "transparent", color: "#b07a72", fontSize: 14, padding: "14px", marginTop: 6, cursor: "pointer" },
   welcomeFinePrint: { fontSize: 12, color: "#c4aaa4", lineHeight: 1.5, marginTop: 22, maxWidth: 320, marginLeft: "auto", marginRight: "auto" },
+  welcomeError: { fontSize: 13, color: "#c2566b", background: "#fcecef", border: "1px solid #f3d2da", borderRadius: 10, padding: "10px 12px", marginTop: 12, lineHeight: 1.45 },
+
+  /* warning modal (local-only) */
+  modalOverlay: { position: "fixed", inset: 0, background: "rgba(58,46,44,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 22, zIndex: 50 },
+  modalCard: { background: "#fff", borderRadius: 20, padding: "26px 24px", maxWidth: 380, width: "100%", textAlign: "center", boxShadow: "0 24px 60px -20px rgba(80,50,46,0.5)" },
+  modalTitle: { fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 600, color: "#6b4a45", margin: "0 0 10px" },
+  modalBody: { fontSize: 14, color: "#8a6d68", lineHeight: 1.6, margin: "0 0 20px" },
+  modalPrimary: { width: "100%", padding: 14, borderRadius: 12, background: "#c98b94", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", border: "none" },
+  modalGhost: { width: "100%", background: "transparent", color: "#b07a72", fontSize: 14, padding: "12px", marginTop: 6, cursor: "pointer", border: "none" },
 
   /* settings */
   gearBtn: { position: "absolute", top: 20, right: 16, width: 40, height: 40, borderRadius: "50%", background: "#fff", border: "1px solid #f0e2dd", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, boxShadow: "0 6px 20px -12px rgba(150,100,95,0.5)" },
