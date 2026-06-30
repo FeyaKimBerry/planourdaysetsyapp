@@ -1049,6 +1049,7 @@ function SummaryCard({ onClick, icon, label, big, sub }) {
 
 function BudgetView({ state, update }) {
   const [openCat, setOpenCat] = useState(null);
+  const [confirmDeleteCat, setConfirmDeleteCat] = useState(null);
 
   const totalAllocated = state.categories.reduce((s, c) => s + (Number(c.allocated) || 0), 0);
   const totalSpent = state.categories.reduce((s, c) => s + catSpent(c), 0);
@@ -1139,7 +1140,8 @@ function BudgetView({ state, update }) {
           const isOpen = openCat === cat.id;
           return (
             <div key={cat.id} style={S.card}>
-              <div style={S.cardHead} onClick={() => setOpenCat(isOpen ? null : cat.id)}>
+              <div style={{ ...S.cardHead, display: "flex", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", flex: 1, cursor: "pointer" }} onClick={() => { setOpenCat(isOpen ? null : cat.id); setConfirmDeleteCat(null); }}>
                 <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
                 <div style={S.catMain}>
                   <div style={S.catName}>{cat.name}</div>
@@ -1151,6 +1153,18 @@ function BudgetView({ state, update }) {
                     </span>
                   </div>
                 </div>
+                </div>
+                {confirmDeleteCat === cat.id ? (
+                  <div style={{ display: "flex", gap: 4, paddingRight: 10 }}>
+                    <button onClick={(e) => { e.stopPropagation(); deleteCategory(cat.id); setConfirmDeleteCat(null); }}
+                      style={S.trashConfirm}>Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteCat(null); }}
+                      style={S.trashCancel}>Cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteCat(cat.id); }}
+                    style={S.trashBtn}>🗑</button>
+                )}
               </div>
 
               {isOpen && (
@@ -1262,7 +1276,8 @@ function ExpenseList({ cat, vendors = [], onAdd, onEdit, onDelete }) {
 
 function ChecklistView({ state, update }) {
   const [openBucket, setOpenBucket] = useState(state.checklist[0]?.id || null);
-  const [expanded, setExpanded] = useState(null); // task id whose detail is open
+  const [expanded, setExpanded] = useState(null);
+  const [confirmDeleteBucket, setConfirmDeleteBucket] = useState(null);
 
   const allTasks = state.checklist.flatMap((b) => b.tasks);
   const doneCount = allTasks.filter((t) => t.done).length;
@@ -1305,12 +1320,25 @@ function ChecklistView({ state, update }) {
           const isOpen = openBucket === bucket.id;
           return (
             <div key={bucket.id} style={S.card}>
-              <div style={S.cardHead} onClick={() => setOpenBucket(isOpen ? null : bucket.id)}>
-                <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
-                <div style={S.catMain}>
-                  <div style={S.bucketLabel}>{bucket.label}</div>
-                  <div style={S.bucketCount}>{bDone}/{bucket.tasks.length} done</div>
+              <div style={{ ...S.cardHead, display: "flex", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", flex: 1, cursor: "pointer" }} onClick={() => { setOpenBucket(isOpen ? null : bucket.id); setConfirmDeleteBucket(null); }}>
+                  <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
+                  <div style={S.catMain}>
+                    <div style={S.bucketLabel}>{bucket.label}</div>
+                    <div style={S.bucketCount}>{bDone}/{bucket.tasks.length} done</div>
+                  </div>
                 </div>
+                {confirmDeleteBucket === bucket.id ? (
+                  <div style={{ display: "flex", gap: 4, paddingRight: 10 }}>
+                    <button onClick={(e) => { e.stopPropagation(); deleteBucket(bucket.id); setConfirmDeleteBucket(null); setOpenBucket(null); }}
+                      style={S.trashConfirm}>Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteBucket(null); }}
+                      style={S.trashCancel}>Cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteBucket(bucket.id); }}
+                    style={S.trashBtn}>🗑</button>
+                )}
               </div>
 
               {isOpen && (
@@ -1380,6 +1408,7 @@ function AddTask({ onAdd }) {
 
 function VendorsView({ state, update }) {
   const [openVendor, setOpenVendor] = useState(null);
+  const [confirmDeleteVendor, setConfirmDeleteVendor] = useState(null);
   const [query, setQuery] = useState("");
 
   const booked = state.vendors.filter((v) => v.status === "Booked").length;
@@ -1476,17 +1505,30 @@ function VendorsView({ state, update }) {
 
           return (
             <div key={vendor.id} style={S.card}>
-              <div style={S.cardHead} onClick={() => setOpenVendor(isOpen ? null : vendor.id)}>
-                <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
-                <div style={S.catMain}>
-                  <div style={S.catName}>{vendor.name || "New Vendor"}</div>
-                  <div style={S.catNumbers}>
-                    <span style={{ ...S.diffPill, background: statusColor.bg, color: statusColor.fg }}>{vendor.status}</span>
-                    {vendor.type && <span style={S.catOf}>{vendor.type}</span>}
-                    <span style={S.catSpent}>{fmt(paid)}</span>
-                    {vendor.contracted > 0 && <span style={S.catOf}>of {fmt(vendor.contracted)}</span>}
+              <div style={{ ...S.cardHead, display: "flex", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", flex: 1, cursor: "pointer" }} onClick={() => { setOpenVendor(isOpen ? null : vendor.id); setConfirmDeleteVendor(null); }}>
+                  <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
+                  <div style={S.catMain}>
+                    <div style={S.catName}>{vendor.name || "New Vendor"}</div>
+                    <div style={S.catNumbers}>
+                      <span style={{ ...S.diffPill, background: statusColor.bg, color: statusColor.fg }}>{vendor.status}</span>
+                      {vendor.type && <span style={S.catOf}>{vendor.type}</span>}
+                      <span style={S.catSpent}>{fmt(paid)}</span>
+                      {vendor.contracted > 0 && <span style={S.catOf}>of {fmt(vendor.contracted)}</span>}
+                    </div>
                   </div>
                 </div>
+                {confirmDeleteVendor === vendor.id ? (
+                  <div style={{ display: "flex", gap: 4, paddingRight: 10 }}>
+                    <button onClick={(e) => { e.stopPropagation(); deleteVendor(vendor.id); setConfirmDeleteVendor(null); }}
+                      style={S.trashConfirm}>Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteVendor(null); }}
+                      style={S.trashCancel}>Cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteVendor(vendor.id); }}
+                    style={S.trashBtn}>🗑</button>
+                )}
               </div>
 
               {isOpen && (
@@ -1641,6 +1683,7 @@ function GuestsView({ state, update }) {
   const toggleGroup = (grp) => setCollapsedGroups((prev) => ({ ...prev, [grp]: !prev[grp] }));
   const [newGroupFor, setNewGroupFor] = useState(null);
   const [newGroupDraft, setNewGroupDraft] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   const addOption = (listKey, val) =>
     update((s) => { if (val.trim() && !s[listKey].includes(val.trim())) s[listKey].push(val.trim()); return s; });
@@ -1788,22 +1831,37 @@ function GuestsView({ state, update }) {
                       const c = rsvpColor(g.rsvp);
                       return (
                         <div key={g.id}>
-                          <div onClick={() => setOpenGuest(isOpen ? null : g.id)}
-                            style={{ display: "flex", alignItems: "center", padding: "10px 14px", borderBottom: idx < members.length - 1 || isOpen ? "1px solid #f7ece8" : "none", cursor: "pointer", gap: 10 }}>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 15, fontWeight: 600, color: "#3a2e2c", fontFamily: "'Fraunces', serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {g.name || "Guest"}
-                              </div>
-                              {(g.meal || Number(g.party) > 1) && (
-                                <div style={{ fontSize: 12, color: "#b58e87", marginTop: 1 }}>
-                                  {g.meal && <span>{g.meal}</span>}
-                                  {g.meal && Number(g.party) > 1 && <span> · </span>}
-                                  {Number(g.party) > 1 && <span>+{Number(g.party) - 1}</span>}
+                          <div style={{ display: "flex", alignItems: "center", borderBottom: idx < members.length - 1 || isOpen ? "1px solid #f7ece8" : "none" }}>
+                            <div onClick={() => { setOpenGuest(isOpen ? null : g.id); setConfirmDelete(null); }}
+                              style={{ display: "flex", alignItems: "center", flex: 1, padding: "10px 14px", cursor: "pointer", gap: 10, minWidth: 0 }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 15, fontWeight: 600, color: "#3a2e2c", fontFamily: "'Fraunces', serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {g.name || "Guest"}
                                 </div>
-                              )}
+                                {(g.meal || Number(g.party) > 1) && (
+                                  <div style={{ fontSize: 12, color: "#b58e87", marginTop: 1 }}>
+                                    {g.meal && <span>{g.meal}</span>}
+                                    {g.meal && Number(g.party) > 1 && <span> · </span>}
+                                    {Number(g.party) > 1 && <span>+{Number(g.party) - 1}</span>}
+                                  </div>
+                                )}
+                              </div>
+                              <span style={{ ...S.diffPill, background: c.bg, color: c.fg, fontSize: 11, flexShrink: 0 }}>{g.rsvp}</span>
+                              <span style={{ color: "#d9c8c3", fontSize: 16, flexShrink: 0 }}>›</span>
                             </div>
-                            <span style={{ ...S.diffPill, background: c.bg, color: c.fg, fontSize: 11, flexShrink: 0 }}>{g.rsvp}</span>
-                            <span style={{ color: "#d9c8c3", fontSize: 16, flexShrink: 0 }}>›</span>
+                            {confirmDelete === g.id ? (
+                              <div style={{ display: "flex", gap: 4, paddingRight: 10, flexShrink: 0 }}>
+                                <button onClick={(e) => { e.stopPropagation(); deleteGuest(g.id); setConfirmDelete(null); }}
+                                  style={{ background: "#c2566b", color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Delete</button>
+                                <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(null); }}
+                                  style={{ background: "#f4e8e4", color: "#b58e87", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                              </div>
+                            ) : (
+                              <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(g.id); }}
+                                style={{ background: "none", border: "none", padding: "10px 12px", cursor: "pointer", color: "#d9c8c3", fontSize: 18, flexShrink: 0, lineHeight: 1 }}>
+                                🗑
+                              </button>
+                            )}
                           </div>
 
                           {isOpen && (
@@ -2425,6 +2483,7 @@ function SeatingView({ state, update }) {
 
 function VenueComparisonView({ state, update }) {
   const [openVenue, setOpenVenue] = useState(null);
+  const [confirmDeleteVenue, setConfirmDeleteVenue] = useState(null);
 
   const venues = state.venues || [];
   const chosen = venues.find((v) => v.chosen);
@@ -2609,26 +2668,38 @@ function VenueComparisonView({ state, update }) {
           const isOpen = openVenue === v.id;
           return (
             <div key={v.id} style={{ ...S.card, borderColor: v.chosen ? "#b8d4b4" : "#f0e2dd" }}>
-              <div style={{ ...S.cardHead, display: "flex", alignItems: "center" }} onClick={() => setOpenVenue(isOpen ? null : v.id)}>
-                <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
-                <div style={{ ...S.catMain, flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={S.catName}>{v.name || "New Venue"}</div>
-                    {v.chosen && <span style={{ ...S.diffPill, background: "#e4eede", color: "#5c7a59", fontSize: 11 }}>Chosen</span>}
-                  </div>
-                  <div style={S.catNumbers}>
-                    {v.price > 0 && <span style={S.catSpent}>{fmt(v.price)}</span>}
-                    {v.capacity > 0 && <span style={S.catOf}>up to {v.capacity} guests</span>}
-                    {v.catering && <span style={{ ...S.diffPill, background: "#faf0d8", color: "#a8862f" }}>Catering incl.</span>}
+              <div style={{ ...S.cardHead, display: "flex", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", flex: 1, cursor: "pointer" }} onClick={() => { setOpenVenue(isOpen ? null : v.id); setConfirmDeleteVenue(null); }}>
+                  <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
+                  <div style={{ ...S.catMain, flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={S.catName}>{v.name || "New Venue"}</div>
+                      {v.chosen && <span style={{ ...S.diffPill, background: "#e4eede", color: "#5c7a59", fontSize: 11 }}>Chosen</span>}
+                    </div>
+                    <div style={S.catNumbers}>
+                      {v.price > 0 && <span style={S.catSpent}>{fmt(v.price)}</span>}
+                      {v.capacity > 0 && <span style={S.catOf}>up to {v.capacity} guests</span>}
+                      {v.catering && <span style={{ ...S.diffPill, background: "#faf0d8", color: "#a8862f" }}>Catering incl.</span>}
+                    </div>
                   </div>
                 </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); editVenue(v.id, { shortlisted: !v.shortlisted }); }}
+                <button onClick={(e) => { e.stopPropagation(); editVenue(v.id, { shortlisted: !v.shortlisted }); }}
                   title={v.shortlisted ? "Remove from comparison table" : "Add to comparison table"}
                   style={{ background: "none", border: "none", fontSize: 13, cursor: "pointer", padding: "4px 6px", lineHeight: 1.3, color: v.shortlisted ? "#e8a838" : "#c4aaa4", display: "flex", flexDirection: "column", alignItems: "center", gap: 1, flexShrink: 0 }}>
                   <span style={{ fontSize: 18 }}>{v.shortlisted ? "★" : "☆"}</span>
                   <span style={{ fontSize: 10 }}>{v.shortlisted ? "In table" : "Compare"}</span>
                 </button>
+                {confirmDeleteVenue === v.id ? (
+                  <div style={{ display: "flex", gap: 4, paddingRight: 4 }}>
+                    <button onClick={(e) => { e.stopPropagation(); deleteVenue(v.id); setConfirmDeleteVenue(null); }}
+                      style={S.trashConfirm}>Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteVenue(null); }}
+                      style={S.trashCancel}>Cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteVenue(v.id); }}
+                    style={S.trashBtn}>🗑</button>
+                )}
               </div>
 
               {isOpen && (
@@ -2936,6 +3007,11 @@ const S = {
   optList: { marginTop: 10 },
   optRow: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 },
   optInput: { flex: 1, fontSize: 15, padding: "9px 11px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd" },
+
+  /* trash delete pattern */
+  trashBtn: { background: "none", border: "none", padding: "10px 12px", cursor: "pointer", color: "#d9c8c3", fontSize: 18, flexShrink: 0, lineHeight: 1 },
+  trashConfirm: { background: "#c2566b", color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" },
+  trashCancel: { background: "#f4e8e4", color: "#b58e87", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" },
 
   /* venue comparison table */
   cmpRowLabel: { fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", color: "#b58e87", padding: "10px 14px", textAlign: "left", whiteSpace: "nowrap", borderBottom: "1px solid #f7ece8", background: "#fdf9f8", fontWeight: 600 },
