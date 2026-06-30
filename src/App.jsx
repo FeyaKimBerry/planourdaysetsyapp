@@ -2829,8 +2829,8 @@ const CSS = `
 `;
 
 const S = {
-  page: { fontFamily: "'Outfit', sans-serif", background: "#fbf6f3", minHeight: "100vh", color: "#3a2e2c", maxWidth: 860, margin: "0 auto", position: "relative" },
-  scroll: { padding: "74px 16px 120px" },
+  page: { fontFamily: "'Outfit', sans-serif", background: "#fbf6f3", minHeight: "100vh", color: "#3a2e2c", maxWidth: 860, margin: "0 auto", position: "relative", overflowX: "hidden" },
+  scroll: { padding: "74px 16px 120px", boxSizing: "border-box", width: "100%", minWidth: 0 },
 
   header: { textAlign: "center", marginBottom: 24 },
   kicker: { letterSpacing: "0.35em", textTransform: "uppercase", fontSize: 11, color: "#b58e87", marginBottom: 6 },
