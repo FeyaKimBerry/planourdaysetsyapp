@@ -2288,11 +2288,8 @@ function SettingsView({ state, update, setState, go, connected, onSignOut }) {
    ============================================================ */
 
 const TABLE_TYPES = [
-  { type: "Round",       icon: "⬤", capacity: 8  },
-  { type: "Long",        icon: "▬", capacity: 20 },
-  { type: "Sweetheart",  icon: "♥", capacity: 2  },
-  { type: "Kids",        icon: "★", capacity: 10 },
-  { type: "Custom",      icon: "✦", capacity: 8  },
+  { type: "Round", icon: "⬤", capacity: 8  },
+  { type: "Long",  icon: "▬", capacity: 20 },
 ];
 
 function SeatingView({ state, update }) {
@@ -2421,8 +2418,13 @@ function SeatingView({ state, update }) {
 
               <div style={S.capRow} onClick={(e) => e.stopPropagation()}>
                 <span style={S.smallLabel}>Seats</span>
-                <input type="number" inputMode="numeric" min="1" style={S.capInput}
-                  value={t.capacity} onChange={(e) => editTable(t.id, { capacity: Math.max(1, Number(e.target.value) || 1) })} />
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <button onClick={() => editTable(t.id, { capacity: Math.max(1, t.capacity - 1) })}
+                    style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #f0e2dd", background: "#fff", fontSize: 18, lineHeight: 1, cursor: "pointer", color: "#6b4a45", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                  <span style={{ minWidth: 24, textAlign: "center", fontWeight: 600, color: "#6b4a45", fontSize: 14 }}>{t.capacity}</span>
+                  <button onClick={() => editTable(t.id, { capacity: t.capacity + 1 })}
+                    style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #f0e2dd", background: "#fff", fontSize: 18, lineHeight: 1, cursor: "pointer", color: "#6b4a45", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                </div>
               </div>
 
               <select
