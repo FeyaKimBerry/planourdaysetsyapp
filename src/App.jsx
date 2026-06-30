@@ -625,6 +625,8 @@ export default function WeddingPlanner() {
     setConnected(true);
     setTab("home");
     setEntered(true);
+    const isExisting = hasRealData(storage.load());
+    if (isExisting) { localStorage.setItem(SETUP_KEY, "1"); localStorage.setItem(GUIDE_KEY, "1"); return; }
     if (!localStorage.getItem(SETUP_KEY)) setShowSetup(true);
     else if (!localStorage.getItem(GUIDE_KEY)) setShowGuide(true);
   };
@@ -632,6 +634,8 @@ export default function WeddingPlanner() {
   const enterLocalOnly = () => {
     setTab("home");
     setEntered(true);
+    const isExisting = hasRealData(storage.load());
+    if (isExisting) { localStorage.setItem(SETUP_KEY, "1"); localStorage.setItem(GUIDE_KEY, "1"); return; }
     if (!localStorage.getItem(SETUP_KEY)) setShowSetup(true);
     else if (!localStorage.getItem(GUIDE_KEY)) setShowGuide(true);
   };
