@@ -269,9 +269,16 @@ function hydrate(loaded) {
 }
 
 // Last-write-wins: newer updatedAt wins; rev breaks same-timestamp ties.
+// If remote looks empty (no names, guests, vendors) but local has real data, always keep local.
+function hasRealData(s) {
+  return !!(s && (s.partner1 || s.partner2 || s.weddingDate || (s.guests && s.guests.length > 0) || (s.vendors && s.vendors.length > 0)));
+}
+
 function reconcile(local, remote) {
   if (!remote) return local;
   if (!local) return remote;
+  // Never overwrite real local data with an empty remote
+  if (hasRealData(local) && !hasRealData(remote)) return local;
   const lu = local.updatedAt || 0;
   const ru = remote.updatedAt || 0;
   if (ru > lu) return remote;
