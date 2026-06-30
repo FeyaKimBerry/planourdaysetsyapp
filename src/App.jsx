@@ -1859,8 +1859,8 @@ function GuestsView({ state, update }) {
                               </div>
                             ) : (
                               <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(g.id); }}
-                                style={{ background: "none", border: "none", padding: "10px 12px", cursor: "pointer", color: "#d9c8c3", fontSize: 18, flexShrink: 0, lineHeight: 1 }}>
-                                🗑
+                                style={S.trashBtn}>
+                                <Icon name="trash" size={18} color="#c98b94" />
                               </button>
                             )}
                           </div>
