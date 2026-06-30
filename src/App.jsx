@@ -327,12 +327,211 @@ function BootingView() {
   );
 }
 
+const GUIDE_KEY = "planourdays-guide-seen";
+
+const GUIDE_SLIDES = [
+  {
+    emoji: "🤍",
+    title: "Welcome to Planourdays",
+    body: "Your calm, all-in-one wedding planner. Here's a quick tour of everything you can do — it only takes a minute!",
+  },
+  {
+    emoji: "🏠",
+    title: "Home",
+    body: "Add your names, wedding date, venue and a vision note. Upload a photo of the two of you — it becomes your banner. The countdown ticks down to your big day.",
+  },
+  {
+    emoji: "💰",
+    title: "Budget",
+    body: "Set your total budget and track spending by category (Venue, Catering, Photography and more). Log expenses as Paid or Upcoming so you always know what's left.",
+  },
+  {
+    emoji: "🏛️",
+    title: "Venues",
+    body: "Add venues you're considering and compare them side by side — price, capacity, catering, pros and cons. Tick one and it automatically appears in your Budget and Vendors.",
+  },
+  {
+    emoji: "📋",
+    title: "Checklist",
+    body: "A timeline of tasks from 12+ months out all the way to after the wedding. Tick things off as you go, add due dates and notes to any task.",
+  },
+  {
+    emoji: "🤝",
+    title: "Vendors",
+    body: "Keep track of your photographer, florist, caterer and every other vendor. Log their status (Researching → Contacted → Booked), contracted amount and payments.",
+  },
+  {
+    emoji: "💌",
+    title: "Guests",
+    body: "Build your guest list, track RSVPs (Yes / No / Maybe), party sizes, meal choices and groups. Your caterer headcount updates automatically.",
+  },
+  {
+    emoji: "🪑",
+    title: "Seating",
+    body: "Create tables and assign guests with a tap. Unseated guests stay in a tray at the bottom — tap a guest then tap a table to seat them.",
+  },
+  {
+    emoji: "☁️",
+    title: "Sync & backup",
+    body: "Sign in with Google to sync your plan across all your devices. You can also export a backup file or a printable PDF from Settings anytime.",
+  },
+];
+
+const SETUP_KEY = "planourdays-setup-seen";
+
+const SETUP_STEPS = [
+  { key: "names",    emoji: "💑", title: "First, who's getting married?",     hint: "These names appear on your home page and PDF export." },
+  { key: "date",     emoji: "📅", title: "When's the big day?",               hint: "We'll count down the days for you." },
+  { key: "budget",   emoji: "💰", title: "What's your total wedding budget?", hint: "You can always change this later in the Budget tab." },
+  { key: "venue",    emoji: "🏛️", title: "Do you have a venue in mind?",      hint: "Optional — skip if you haven't decided yet." },
+];
+
+function SetupWizard({ onFinish, onSkipAll }) {
+  const [step, setStep] = useState(0);
+  const [draft, setDraft] = useState({ partner1: "", partner2: "", weddingDate: "", total: "", currency: "AUD", venue: "" });
+  const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
+  const total = SETUP_STEPS.length;
+  const s = SETUP_STEPS[step];
+  const isLast = step === total - 1;
+
+  const canNext = () => {
+    if (s.key === "names") return draft.partner1.trim() !== "";
+    if (s.key === "date") return draft.weddingDate !== "";
+    if (s.key === "budget") return draft.total !== "" && Number(draft.total) > 0;
+    return true; // venue is optional
+  };
+
+  const handleNext = () => {
+    if (isLast) { onFinish(draft); return; }
+    setStep(step + 1);
+  };
+
+  return (
+    <div style={S.guideOverlay}>
+      <div style={S.guideCard}>
+        <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", color: "#c4aaa4", marginBottom: 18 }}>
+          Step {step + 1} of {total}
+        </div>
+
+        <div style={S.guideEmoji}>{s.emoji}</div>
+        <h2 style={S.guideTitle}>{s.title}</h2>
+        <p style={{ ...S.guideBody, marginBottom: 18 }}>{s.hint}</p>
+
+        {/* Step inputs */}
+        {s.key === "names" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 22 }}>
+            <input style={S.setupInput} placeholder="Partner 1 name" value={draft.partner1}
+              onChange={(e) => set({ partner1: e.target.value })} autoFocus />
+            <input style={S.setupInput} placeholder="Partner 2 name (optional)" value={draft.partner2}
+              onChange={(e) => set({ partner2: e.target.value })} />
+          </div>
+        )}
+
+        {s.key === "date" && (
+          <div style={{ marginBottom: 22 }}>
+            <input type="date" style={S.setupInput} value={draft.weddingDate}
+              onChange={(e) => set({ weddingDate: e.target.value })} />
+          </div>
+        )}
+
+        {s.key === "budget" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 22 }}>
+            <div style={{ display: "flex", alignItems: "center", background: "#fbf6f3", borderRadius: 12, padding: "12px 16px", border: "1px solid #f0e2dd" }}>
+              <span style={{ color: "#b58e87", fontSize: 20, marginRight: 6 }}>$</span>
+              <input type="number" inputMode="numeric" style={{ ...S.setupInput, background: "transparent", border: "none", padding: 0, fontSize: 22, fontWeight: 600 }}
+                placeholder="30000" value={draft.total} onChange={(e) => set({ total: e.target.value })} autoFocus />
+            </div>
+            <select style={{ ...S.setupInput, color: "#3a2e2c" }} value={draft.currency}
+              onChange={(e) => set({ currency: e.target.value })}>
+              {Object.entries(CURRENCIES).map(([code, info]) => (
+                <option key={code} value={code}>{info.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {s.key === "venue" && (
+          <div style={{ marginBottom: 22 }}>
+            <input style={S.setupInput} placeholder="e.g. The Botanical Gardens" value={draft.venue}
+              onChange={(e) => set({ venue: e.target.value })} autoFocus />
+          </div>
+        )}
+
+        {/* Progress dots */}
+        <div style={S.guideDots}>
+          {SETUP_STEPS.map((_, i) => (
+            <div key={i} style={{ ...S.guideDot, background: i <= step ? "#c98b94" : "#f0e2dd", cursor: "default" }} />
+          ))}
+        </div>
+
+        <div style={S.guideBtnRow}>
+          {step > 0 && (
+            <button style={S.guideBack} onClick={() => setStep(step - 1)}>Back</button>
+          )}
+          <button style={{ ...S.guideNext, opacity: canNext() || s.key === "venue" ? 1 : 0.5 }} onClick={handleNext}>
+            {isLast ? "All done!" : "Next"}
+          </button>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center", gap: 16, marginTop: 14 }}>
+          <button style={{ background: "none", border: "none", color: "#c4aaa4", fontSize: 13, cursor: "pointer" }}
+            onClick={handleNext}>
+            Skip this step
+          </button>
+          <span style={{ color: "#f0e2dd", fontSize: 13 }}>·</span>
+          <button style={{ background: "none", border: "none", color: "#c4aaa4", fontSize: 13, cursor: "pointer" }}
+            onClick={onSkipAll}>
+            Fill in myself
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GuideModal({ onClose }) {
+  const [slide, setSlide] = useState(0);
+  const total = GUIDE_SLIDES.length;
+  const s = GUIDE_SLIDES[slide];
+  const isLast = slide === total - 1;
+
+  return (
+    <div style={S.guideOverlay}>
+      <div style={S.guideCard}>
+        <button style={S.guideClose} onClick={onClose}>×</button>
+
+        <div style={S.guideEmoji}>{s.emoji}</div>
+        <h2 style={S.guideTitle}>{s.title}</h2>
+        <p style={S.guideBody}>{s.body}</p>
+
+        <div style={S.guideDots}>
+          {GUIDE_SLIDES.map((_, i) => (
+            <button key={i} onClick={() => setSlide(i)}
+              style={{ ...S.guideDot, background: i === slide ? "#c98b94" : "#f0e2dd" }} />
+          ))}
+        </div>
+
+        <div style={S.guideBtnRow}>
+          {slide > 0 && (
+            <button style={S.guideBack} onClick={() => setSlide(slide - 1)}>Back</button>
+          )}
+          <button style={S.guideNext} onClick={() => isLast ? onClose() : setSlide(slide + 1)}>
+            {isLast ? "Let's go!" : "Next"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function WeddingPlanner() {
   const [state, setState] = useState(() => hydrate(storage.load()));
   const [tab, setTab] = useState("home");
   // entered = past the welcome screen; connected = Google Drive is linked.
   const [entered, setEntered] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
   // idle | syncing | synced | offline | error — drives the footer indicator.
   const [syncStatus, setSyncStatus] = useState("idle");
   // True only while we silently restore a previous Google session on first load.
@@ -415,9 +614,16 @@ export default function WeddingPlanner() {
     setConnected(true);
     setTab("home");
     setEntered(true);
+    if (!localStorage.getItem(SETUP_KEY)) setShowSetup(true);
+    else if (!localStorage.getItem(GUIDE_KEY)) setShowGuide(true);
   };
 
-  const enterLocalOnly = () => { setTab("home"); setEntered(true); };
+  const enterLocalOnly = () => {
+    setTab("home");
+    setEntered(true);
+    if (!localStorage.getItem(SETUP_KEY)) setShowSetup(true);
+    else if (!localStorage.getItem(GUIDE_KEY)) setShowGuide(true);
+  };
 
   const handleSignOut = () => {
     if (pushTimer.current) clearTimeout(pushTimer.current);
@@ -439,6 +645,32 @@ export default function WeddingPlanner() {
     );
   }
 
+  const closeGuide = () => {
+    localStorage.setItem(GUIDE_KEY, "1");
+    setShowGuide(false);
+  };
+
+  const finishSetup = (draft) => {
+    localStorage.setItem(SETUP_KEY, "1");
+    update((s) => {
+      if (draft.partner1.trim()) s.partner1 = draft.partner1.trim();
+      if (draft.partner2.trim()) s.partner2 = draft.partner2.trim();
+      if (draft.weddingDate) s.weddingDate = draft.weddingDate;
+      if (draft.total && Number(draft.total) > 0) {
+        s.total = Number(draft.total);
+        s.currency = draft.currency;
+        s.categories = s.categories.map((c) => ({
+          ...c,
+          allocated: Math.round(Number(draft.total) * (PRESET_CATEGORIES.find((p) => p.id === c.id)?.pct || 0)),
+        }));
+      }
+      if (draft.venue.trim()) s.venue = draft.venue.trim();
+      return s;
+    });
+    setShowSetup(false);
+    setShowGuide(true);
+  };
+
   return (
     <div style={S.page}>
       <style>{CSS}</style>
@@ -448,10 +680,18 @@ export default function WeddingPlanner() {
       </button>
 
       {tab !== "settings" && (
-        <button style={S.gearBtn} onClick={() => setTab("settings")} aria-label="Settings">
-          <Icon name="gear" size={22} color="#b07a72" />
-        </button>
+        <>
+          <button style={S.helpBtn} onClick={() => setShowGuide(true)} aria-label="Help">
+            <span style={{ fontSize: 15, fontWeight: 700, color: "#b07a72", lineHeight: 1 }}>?</span>
+          </button>
+          <button style={S.gearBtn} onClick={() => setTab("settings")} aria-label="Settings">
+            <Icon name="gear" size={22} color="#b07a72" />
+          </button>
+        </>
       )}
+
+      {showSetup && <SetupWizard onFinish={finishSetup} onSkipAll={() => { localStorage.setItem(SETUP_KEY, "1"); setShowSetup(false); setShowGuide(true); }} />}
+      {showGuide && <GuideModal onClose={closeGuide} />}
 
       <div style={S.scroll}>
         {tab === "home" && <HomeView state={state} update={update} go={setTab} />}
@@ -2489,6 +2729,23 @@ const S = {
   optList: { marginTop: 10 },
   optRow: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 },
   optInput: { flex: 1, fontSize: 15, padding: "9px 11px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd" },
+
+  /* help button */
+  helpBtn: { position: "absolute", top: 20, right: 62, width: 36, height: 36, borderRadius: 12, background: "linear-gradient(135deg,#f9ede9,#f4e0da)", border: "1px solid #eac8bf", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, boxShadow: "0 4px 14px -6px rgba(180,110,100,0.45)" },
+
+  /* guide modal */
+  guideOverlay: { position: "fixed", inset: 0, background: "rgba(58,46,44,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 100 },
+  guideCard: { background: "#fff", borderRadius: 24, padding: "32px 26px 26px", maxWidth: 380, width: "100%", textAlign: "center", boxShadow: "0 28px 60px -20px rgba(80,50,46,0.55)", position: "relative" },
+  guideClose: { position: "absolute", top: 14, right: 16, width: 30, height: 30, borderRadius: "50%", background: "#f7ece8", color: "#b07a72", fontSize: 20, lineHeight: 1, border: "none", cursor: "pointer" },
+  guideEmoji: { fontSize: 48, marginBottom: 14, lineHeight: 1 },
+  guideTitle: { fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 600, fontStyle: "italic", color: "#6b4a45", margin: "0 0 12px" },
+  guideBody: { fontSize: 15, color: "#8a6d68", lineHeight: 1.65, margin: "0 0 24px" },
+  guideDots: { display: "flex", justifyContent: "center", gap: 6, marginBottom: 22 },
+  guideDot: { width: 8, height: 8, borderRadius: "50%", border: "none", cursor: "pointer", padding: 0, transition: "background 0.2s" },
+  guideBtnRow: { display: "flex", gap: 10 },
+  guideBack: { flex: 1, padding: 13, borderRadius: 12, background: "#fff", color: "#b07a72", fontSize: 15, fontWeight: 600, border: "1.5px solid #e3c4bd", cursor: "pointer" },
+  guideNext: { flex: 2, padding: 13, borderRadius: 12, background: "linear-gradient(90deg,#d9a7a0,#c98b94)", color: "#fff", fontSize: 15, fontWeight: 600, border: "none", cursor: "pointer" },
+  setupInput: { width: "100%", fontSize: 16, padding: "13px 14px", borderRadius: 12, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd", fontFamily: "'Outfit', sans-serif" },
 
   /* bottom nav */
   nav: { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 860, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(10px)", borderTop: "1px solid #f0e2dd", display: "flex", justifyContent: "space-around", padding: "10px 0 14px", zIndex: 10 },
