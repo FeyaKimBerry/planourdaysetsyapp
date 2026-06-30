@@ -1168,6 +1168,7 @@ function BudgetView({ state, update }) {
                     onAdd={(exp) => addExpense(cat.id, exp)}
                     onEdit={(eid, patch) => editExpense(cat.id, eid, patch)}
                     onDelete={(eid) => deleteExpense(cat.id, eid)} />
+                  <button style={S.doneBtn} onClick={() => setOpenCat(null)}>Done</button>
                 </div>
               )}
             </div>
@@ -1336,6 +1337,7 @@ function ChecklistView({ state, update }) {
                     );
                   })}
                   <AddTask onAdd={(name) => addTask(bucket.id, name)} />
+                  <button style={S.doneBtn} onClick={() => setOpenBucket(null)}>Done</button>
                 </div>
               )}
             </div>
@@ -1553,6 +1555,7 @@ function VendorsView({ state, update }) {
                   <button style={{ ...S.deleteCat, marginTop: 14, display: "block" }} onClick={() => deleteVendor(vendor.id)}>
                     Delete vendor
                   </button>
+                  <button style={S.doneBtn} onClick={() => setOpenVendor(null)}>Done</button>
                 </div>
               )}
             </div>
@@ -1778,6 +1781,7 @@ function GuestsView({ state, update }) {
                   <button style={{ ...S.deleteCat, marginTop: 14, display: "block" }} onClick={() => deleteGuest(g.id)}>
                     Remove guest
                   </button>
+                  <button style={S.doneBtn} onClick={() => setOpenGuest(null)}>Done</button>
                 </div>
               )}
             </div>
@@ -2516,6 +2520,7 @@ function VenueComparisonView({ state, update }) {
                       Delete
                     </button>
                   </div>
+                  <button style={S.doneBtn} onClick={() => setOpenVenue(null)}>Done</button>
                 </div>
               )}
             </div>
@@ -2600,6 +2605,7 @@ const S = {
   miniDollar: { color: "#b58e87", marginRight: 2 },
   miniInput: { width: 90, fontWeight: 600, color: "#6b4a45", fontSize: 15 },
   deleteCat: { marginLeft: "auto", background: "transparent", color: "#c2566b", fontSize: 13 },
+  doneBtn: { width: "100%", marginTop: 14, padding: 12, borderRadius: 10, background: "#f4e8e4", color: "#b07a72", fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer" },
 
   expItem: { background: "#fdfaf8", borderRadius: 10, padding: "10px 12px", marginBottom: 8, border: "1px solid #f4e7e2" },
   expItemTop: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 },
