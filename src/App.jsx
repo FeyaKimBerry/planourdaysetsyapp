@@ -494,7 +494,7 @@ function Icon({ name, size = 22, color = "currentColor" }) {
     check: <><path d="M4 12.5 9 17.5 20 6.5" /></>,
     vendor: <><path d="M3.5 9.5 7 5h10l3.5 4.5L12 21 3.5 9.5Z" /><path d="M3.5 9.5h17M9 5l-1.5 4.5L12 21M15 5l1.5 4.5L12 21" /></>,
     guest: <><path d="M12 20.5s-7-4.3-9.2-9C1.4 8.6 2.6 5.5 5.6 5c1.9-.3 3.6.8 4.4 2.3.8-1.5 2.5-2.6 4.4-2.3 3 .5 4.2 3.6 2.8 6.5-2.2 4.7-9.2 9-9.2 9Z" /></>,
-    gear: <><circle cx="12" cy="12" r="3.2" /><path d="M19.4 13.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V20a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H10a1.6 1.6 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V10a1.6 1.6 0 0 0 1.5 1H20a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z" /></>,
+    gear: <><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M19.43 12.98c.04-.32.07-.65.07-.98 0-.33-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.49.49 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.04.32-.07.65-.07.98 0 .33.03.66.07.98L2.46 14.63a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.08.42.45.42.49.42h4c.24 0 .45-.17.49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.49.49 0 0 0 .61-.22l2-3.46a.49.49 0 0 0-.12-.64l-2.11-1.65Z" /></>,
     back: <><path d="M15 18l-6-6 6-6" /></>,
     venue: <><path d="M3 21h18M4 21V9l8-6 8 6v12M9 21v-6h6v6" /></>,
     seating: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="3.5" r="1.6" /><circle cx="12" cy="20.5" r="1.6" /><circle cx="3.5" cy="12" r="1.6" /><circle cx="20.5" cy="12" r="1.6" /></>,
@@ -2397,7 +2397,7 @@ const S = {
   modalGhost: { width: "100%", background: "transparent", color: "#b07a72", fontSize: 14, padding: "12px", marginTop: 6, cursor: "pointer", border: "none" },
 
   /* settings */
-  gearBtn: { position: "absolute", top: 20, right: 16, width: 40, height: 40, borderRadius: "50%", background: "#fff", border: "1px solid #f0e2dd", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, boxShadow: "0 6px 20px -12px rgba(150,100,95,0.5)" },
+  gearBtn: { position: "absolute", top: 20, right: 16, width: 36, height: 36, borderRadius: 12, background: "linear-gradient(135deg,#f9ede9,#f4e0da)", border: "1px solid #eac8bf", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, boxShadow: "0 4px 14px -6px rgba(180,110,100,0.45)" },
   appLogoBtn: { position: "absolute", top: 18, left: 16, height: 42, display: "flex", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", zIndex: 5 },
   appLogoImg: { height: 38, width: "auto", display: "block" },
   settingsHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, paddingTop: 4 },
