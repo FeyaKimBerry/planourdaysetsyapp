@@ -190,6 +190,7 @@ function makeInitialState() {
     })),
     vendors: [],
     guests: [],
+    venues: [],
     mealOptions: ["Chicken", "Beef", "Fish", "Vegetarian", "Vegan", "Kids", "Other"],
     groupOptions: ["Bride's family", "Groom's family", "Bride's friends", "Groom's friends", "Work", "Other"],
   };
@@ -259,6 +260,7 @@ function hydrate(loaded) {
     checklist: loaded.checklist || base.checklist,
     vendors: loaded.vendors || base.vendors,
     guests: loaded.guests || base.guests,
+    venues: loaded.venues || base.venues,
     mealOptions: loaded.mealOptions || base.mealOptions,
     groupOptions: loaded.groupOptions || base.groupOptions,
     currency: loaded.currency || base.currency,
@@ -458,6 +460,7 @@ export default function WeddingPlanner() {
         {tab === "vendors" && <VendorsView state={state} update={update} />}
         {tab === "guests" && <GuestsView state={state} update={update} />}
         {tab === "seating" && <SeatingView state={state} update={update} />}
+        {tab === "venues" && <VenueComparisonView state={state} update={update} />}
         {tab === "settings" && <SettingsView state={state} update={update} setState={setStateStamped} go={setTab} connected={connected} onSignOut={handleSignOut} />}
 
         <footer style={S.footer}>
@@ -473,6 +476,7 @@ export default function WeddingPlanner() {
         <NavBtn active={tab === "home"} onClick={() => setTab("home")} icon="home" label="Home" />
         <NavBtn active={tab === "budget"} onClick={() => setTab("budget")} icon="budget" label="Budget" />
         <NavBtn active={tab === "checklist"} onClick={() => setTab("checklist")} icon="check" label="Checklist" />
+        <NavBtn active={tab === "venues"} onClick={() => setTab("venues")} icon="venue" label="Venues" />
         <NavBtn active={tab === "vendors"} onClick={() => setTab("vendors")} icon="vendor" label="Vendors" />
         <NavBtn active={tab === "guests"} onClick={() => setTab("guests")} icon="guest" label="Guests" />
         <NavBtn active={tab === "seating"} onClick={() => setTab("seating")} icon="seating" label="Seating" />
@@ -492,6 +496,7 @@ function Icon({ name, size = 22, color = "currentColor" }) {
     guest: <><path d="M12 20.5s-7-4.3-9.2-9C1.4 8.6 2.6 5.5 5.6 5c1.9-.3 3.6.8 4.4 2.3.8-1.5 2.5-2.6 4.4-2.3 3 .5 4.2 3.6 2.8 6.5-2.2 4.7-9.2 9-9.2 9Z" /></>,
     gear: <><circle cx="12" cy="12" r="3.2" /><path d="M19.4 13.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V20a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H10a1.6 1.6 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V10a1.6 1.6 0 0 0 1.5 1H20a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z" /></>,
     back: <><path d="M15 18l-6-6 6-6" /></>,
+    venue: <><path d="M3 21h18M4 21V9l8-6 8 6v12M9 21v-6h6v6" /></>,
     seating: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="3.5" r="1.6" /><circle cx="12" cy="20.5" r="1.6" /><circle cx="3.5" cy="12" r="1.6" /><circle cx="20.5" cy="12" r="1.6" /></>,
   };
   return <svg {...common} style={{ display: "block" }}>{paths[name]}</svg>;
@@ -2048,6 +2053,217 @@ function SeatingView({ state, update }) {
           <button style={S.seatingCancel} onClick={() => setSelectedGuest(null)}>Cancel</button>
         </div>
       )}
+    </>
+  );
+}
+
+/* ============================================================
+   VENUE COMPARISON VIEW
+   ============================================================ */
+
+function VenueComparisonView({ state, update }) {
+  const [openVenue, setOpenVenue] = useState(null);
+
+  const venues = state.venues || [];
+  const chosen = venues.find((v) => v.chosen);
+
+  const addVenue = () =>
+    update((s) => {
+      if (!s.venues) s.venues = [];
+      s.venues.push({ id: uid(), name: "New Venue", price: 0, capacity: 0, catering: false, location: "", available: "", notes: "", pros: "", cons: "", chosen: false });
+      return s;
+    });
+
+  const editVenue = (id, patch) =>
+    update((s) => { const v = s.venues.find((x) => x.id === id); if (v) Object.assign(v, patch); return s; });
+
+  const deleteVenue = (id) =>
+    update((s) => { s.venues = s.venues.filter((x) => x.id !== id); return s; });
+
+  const chooseVenue = (id) =>
+    update((s) => {
+      const v = s.venues.find((x) => x.id === id);
+      if (!v) return s;
+
+      // Unmark all venues
+      for (const x of s.venues) x.chosen = false;
+      v.chosen = true;
+      s.venue = v.name;
+
+      // Remove any previously auto-created venue vendor + its expenses
+      const old = s.vendors.find((x) => x.fromVenue);
+      if (old) {
+        for (const c of s.categories)
+          c.expenses = c.expenses.filter((e) => e.vendorId !== old.id);
+        s.vendors = s.vendors.filter((x) => x.id !== old.id);
+      }
+
+      // Create new vendor
+      const vendorId = uid();
+      s.vendors.push({
+        id: vendorId,
+        name: v.name,
+        type: "Venue",
+        categoryId: s.categories.find((c) => c.id === "venue")?.id || s.categories[0]?.id || "",
+        phone: "",
+        email: "",
+        status: "Booked",
+        notes: v.notes || "",
+        contracted: v.price || 0,
+        fromVenue: true,
+      });
+
+      // Add upcoming expense in Venue & Rentals category
+      const cat = s.categories.find((c) => c.id === "venue") || s.categories[0];
+      if (cat) {
+        cat.expenses.push({
+          id: uid(),
+          vendorId,
+          desc: v.name,
+          amount: v.price || 0,
+          date: new Date().toISOString().slice(0, 10),
+          paid: false,
+        });
+      }
+
+      return s;
+    });
+
+  const unchoose = () =>
+    update((s) => {
+      for (const v of s.venues) v.chosen = false;
+      s.venue = "";
+      // Remove auto-created vendor + expenses
+      const old = s.vendors.find((x) => x.fromVenue);
+      if (old) {
+        for (const c of s.categories)
+          c.expenses = c.expenses.filter((e) => e.vendorId !== old.id);
+        s.vendors = s.vendors.filter((x) => x.id !== old.id);
+      }
+      return s;
+    });
+
+  return (
+    <>
+      <header style={S.header}>
+        <div style={S.kicker}>The Wedding</div>
+        <h1 style={S.title}>Venues</h1>
+      </header>
+
+      {chosen && (
+        <section style={{ ...S.dashboard, borderColor: "#b8d4b4", background: "#f4faf3" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "#5c7a59", marginBottom: 4 }}>Chosen venue</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 600, color: "#3a5c38" }}>{chosen.name}</div>
+              {chosen.location && <div style={{ fontSize: 13, color: "#5c7a59", marginTop: 2 }}>{chosen.location}</div>}
+            </div>
+            <button style={{ background: "transparent", color: "#5c7a59", fontSize: 13, border: "1px solid #b8d4b4", borderRadius: 8, padding: "6px 12px" }} onClick={unchoose}>
+              Undo
+            </button>
+          </div>
+        </section>
+      )}
+
+      {venues.length === 0 && (
+        <div style={S.emptyNote}>Add venues you're considering — compare price, capacity, catering and more side by side.</div>
+      )}
+
+      <section>
+        {venues.map((v) => {
+          const isOpen = openVenue === v.id;
+          return (
+            <div key={v.id} style={{ ...S.card, borderColor: v.chosen ? "#b8d4b4" : "#f0e2dd" }}>
+              <div style={S.cardHead} onClick={() => setOpenVenue(isOpen ? null : v.id)}>
+                <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
+                <div style={S.catMain}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <input value={v.name} onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => editVenue(v.id, { name: e.target.value })} style={S.catName} />
+                    {v.chosen && <span style={{ ...S.diffPill, background: "#e4eede", color: "#5c7a59", fontSize: 11 }}>Chosen</span>}
+                  </div>
+                  <div style={S.catNumbers}>
+                    {v.price > 0 && <span style={S.catSpent}>{fmt(v.price)}</span>}
+                    {v.capacity > 0 && <span style={S.catOf}>up to {v.capacity} guests</span>}
+                    {v.catering && <span style={{ ...S.diffPill, background: "#faf0d8", color: "#a8862f" }}>Catering incl.</span>}
+                  </div>
+                </div>
+              </div>
+
+              {isOpen && (
+                <div style={S.cardBody}>
+                  <div style={S.vendorFields}>
+                    <Field label="Estimated price">
+                      <div style={S.miniInputWrap}>
+                        <span style={S.miniDollar}>$</span>
+                        <input type="number" inputMode="numeric" style={S.miniInput}
+                          value={v.price === 0 ? "" : v.price} placeholder="0"
+                          onChange={(e) => editVenue(v.id, { price: Number(e.target.value) || 0 })} />
+                      </div>
+                    </Field>
+                    <Field label="Guest capacity">
+                      <input type="number" inputMode="numeric" style={S.fieldInput}
+                        value={v.capacity === 0 ? "" : v.capacity} placeholder="0"
+                        onChange={(e) => editVenue(v.id, { capacity: Number(e.target.value) || 0 })} />
+                    </Field>
+                    <Field label="Location">
+                      <input style={S.fieldInput} placeholder="Suburb or address"
+                        value={v.location} onChange={(e) => editVenue(v.id, { location: e.target.value })} />
+                    </Field>
+                    <Field label="Our date available?">
+                      <input style={S.fieldInput} placeholder="Yes / No / TBC"
+                        value={v.available} onChange={(e) => editVenue(v.id, { available: e.target.value })} />
+                    </Field>
+                  </div>
+
+                  <div style={{ marginTop: 14 }}>
+                    <button
+                      onClick={() => editVenue(v.id, { catering: !v.catering })}
+                      style={{ ...S.statusToggle, color: v.catering ? "#5c7a59" : "#b58e87", background: v.catering ? "#e4eede" : "#fbf6f3", border: "1px solid", borderColor: v.catering ? "#b8d4b4" : "#f0e2dd" }}>
+                      {v.catering ? "✓ Catering included" : "Catering not included"}
+                    </button>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
+                    <div>
+                      <label style={S.smallLabel}>Pros</label>
+                      <textarea rows={3} style={{ ...S.visionInput, marginTop: 5, fontSize: 13 }}
+                        placeholder="What you love about it…"
+                        value={v.pros} onChange={(e) => editVenue(v.id, { pros: e.target.value })} />
+                    </div>
+                    <div>
+                      <label style={S.smallLabel}>Cons</label>
+                      <textarea rows={3} style={{ ...S.visionInput, marginTop: 5, fontSize: 13 }}
+                        placeholder="Concerns or drawbacks…"
+                        value={v.cons} onChange={(e) => editVenue(v.id, { cons: e.target.value })} />
+                    </div>
+                  </div>
+
+                  <input style={{ ...S.taskNote, marginTop: 12 }} placeholder="Notes (what's included, deposit deadline, contact)…"
+                    value={v.notes} onChange={(e) => editVenue(v.id, { notes: e.target.value })} />
+
+                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                    {!v.chosen ? (
+                      <button style={{ ...S.addBtn, flex: 1, marginTop: 0 }} onClick={() => chooseVenue(v.id)}>
+                        Choose this venue
+                      </button>
+                    ) : (
+                      <div style={{ flex: 1, padding: 13, borderRadius: 10, background: "#e4eede", color: "#5c7a59", fontSize: 15, fontWeight: 600, textAlign: "center" }}>
+                        This is your venue
+                      </div>
+                    )}
+                    <button style={{ ...S.deleteCat, background: "#f7ece8", borderRadius: 8, padding: "0 14px", height: 48 }} onClick={() => deleteVenue(v.id)}>
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        <button style={S.addCat} onClick={addVenue}>+ Add venue</button>
+      </section>
     </>
   );
 }
