@@ -2528,7 +2528,6 @@ function VenueComparisonView({ state, update }) {
    ============================================================ */
 
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Outfit:wght@300;400;500;600&display=swap');
   * { box-sizing: border-box; }
   input { font-family: 'Outfit', sans-serif; outline: none; border: none; background: transparent; -webkit-appearance: none; }
   input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
