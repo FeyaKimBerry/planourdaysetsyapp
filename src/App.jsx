@@ -1141,8 +1141,7 @@ function BudgetView({ state, update }) {
               <div style={S.cardHead} onClick={() => setOpenCat(isOpen ? null : cat.id)}>
                 <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
                 <div style={S.catMain}>
-                  <input value={cat.name} onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => editCategory(cat.id, { name: e.target.value })} style={S.catName} />
+                  <div style={S.catName}>{cat.name}</div>
                   <div style={S.catNumbers}>
                     <span style={S.catSpent}>{fmt(spent)}</span>
                     <span style={S.catOf}>of {fmt(cat.allocated)}</span>
@@ -1155,6 +1154,11 @@ function BudgetView({ state, update }) {
 
               {isOpen && (
                 <div style={S.cardBody}>
+                  <div style={S.allocEdit}>
+                    <Field label="Category name">
+                      <input style={S.fieldInput} value={cat.name} onChange={(e) => editCategory(cat.id, { name: e.target.value })} />
+                    </Field>
+                  </div>
                   <div style={S.allocEdit}>
                     <label style={S.smallLabel}>Allocated</label>
                     <div style={S.miniInputWrap}>
@@ -1465,8 +1469,7 @@ function VendorsView({ state, update }) {
               <div style={S.cardHead} onClick={() => setOpenVendor(isOpen ? null : vendor.id)}>
                 <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
                 <div style={S.catMain}>
-                  <input value={vendor.name} onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => editVendor(vendor.id, { name: e.target.value })} style={S.catName} />
+                  <div style={S.catName}>{vendor.name || "New Vendor"}</div>
                   <div style={S.catNumbers}>
                     <span style={{ ...S.diffPill, background: statusColor.bg, color: statusColor.fg }}>{vendor.status}</span>
                     {vendor.type && <span style={S.catOf}>{vendor.type}</span>}
@@ -1480,6 +1483,10 @@ function VendorsView({ state, update }) {
                 <div style={S.cardBody}>
                   {/* details */}
                   <div style={S.vendorFields}>
+                    <Field label="Vendor name">
+                      <input style={S.fieldInput} value={vendor.name} placeholder="Vendor name"
+                        onChange={(e) => editVendor(vendor.id, { name: e.target.value })} />
+                    </Field>
                     <Field label="Type">
                       <input style={S.fieldInput} placeholder="e.g. Photographer" value={vendor.type}
                         onChange={(e) => editVendor(vendor.id, { type: e.target.value })} />
@@ -1741,8 +1748,7 @@ function GuestsView({ state, update }) {
               <div style={S.cardHead} onClick={() => setOpenGuest(isOpen ? null : g.id)}>
                 <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
                 <div style={S.catMain}>
-                  <input value={g.name} placeholder="Guest name" onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => editGuest(g.id, { name: e.target.value })} style={S.catName} />
+                  <div style={S.catName}>{g.name || "Guest"}</div>
                   <div style={S.catNumbers}>
                     <span style={{ ...S.diffPill, background: c.bg, color: c.fg }}>{g.rsvp}</span>
                     {Number(g.party) > 1 && <span style={S.catOf}>party of {g.party}</span>}
@@ -1754,6 +1760,10 @@ function GuestsView({ state, update }) {
               {isOpen && (
                 <div style={S.cardBody}>
                   <div style={S.vendorFields}>
+                    <Field label="Guest name">
+                      <input style={S.fieldInput} placeholder="Guest name" value={g.name}
+                        onChange={(e) => editGuest(g.id, { name: e.target.value })} />
+                    </Field>
                     <Field label="RSVP">
                       <select style={S.fieldSelect} value={g.rsvp} onChange={(e) => editGuest(g.id, { rsvp: e.target.value })}>
                         {RSVP_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
@@ -2442,8 +2452,7 @@ function VenueComparisonView({ state, update }) {
                 <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
                 <div style={S.catMain}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <input value={v.name} onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => editVenue(v.id, { name: e.target.value })} style={S.catName} />
+                    <div style={S.catName}>{v.name || "New Venue"}</div>
                     {v.chosen && <span style={{ ...S.diffPill, background: "#e4eede", color: "#5c7a59", fontSize: 11 }}>Chosen</span>}
                   </div>
                   <div style={S.catNumbers}>
@@ -2456,6 +2465,12 @@ function VenueComparisonView({ state, update }) {
 
               {isOpen && (
                 <div style={S.cardBody}>
+                  <div style={{ marginBottom: 12 }}>
+                    <Field label="Venue name">
+                      <input style={S.fieldInput} value={v.name} placeholder="Venue name"
+                        onChange={(e) => editVenue(v.id, { name: e.target.value })} />
+                    </Field>
+                  </div>
                   <div style={S.vendorFields}>
                     <Field label="Estimated price">
                       <div style={S.miniInputWrap}>
