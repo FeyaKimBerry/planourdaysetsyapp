@@ -759,6 +759,7 @@ function Icon({ name, size = 22, color = "currentColor" }) {
     back: <><path d="M15 18l-6-6 6-6" /></>,
     venue: <><path d="M3 21h18M4 21V9l8-6 8 6v12M9 21v-6h6v6" /></>,
     seating: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="3.5" r="1.6" /><circle cx="12" cy="20.5" r="1.6" /><circle cx="3.5" cy="12" r="1.6" /><circle cx="20.5" cy="12" r="1.6" /></>,
+    trash: <><path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" /></>,
   };
   return <svg {...common} style={{ display: "block" }}>{paths[name]}</svg>;
 }
@@ -1163,7 +1164,7 @@ function BudgetView({ state, update }) {
                   </div>
                 ) : (
                   <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteCat(cat.id); }}
-                    style={S.trashBtn}>🗑</button>
+                    style={S.trashBtn}><Icon name="trash" size={18} color="#c98b94" /></button>
                 )}
               </div>
 
@@ -1337,7 +1338,7 @@ function ChecklistView({ state, update }) {
                   </div>
                 ) : (
                   <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteBucket(bucket.id); }}
-                    style={S.trashBtn}>🗑</button>
+                    style={S.trashBtn}><Icon name="trash" size={18} color="#c98b94" /></button>
                 )}
               </div>
 
@@ -1527,7 +1528,7 @@ function VendorsView({ state, update }) {
                   </div>
                 ) : (
                   <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteVendor(vendor.id); }}
-                    style={S.trashBtn}>🗑</button>
+                    style={S.trashBtn}><Icon name="trash" size={18} color="#c98b94" /></button>
                 )}
               </div>
 
@@ -2728,7 +2729,7 @@ function VenueComparisonView({ state, update }) {
                   </div>
                 ) : (
                   <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteVenue(v.id); }}
-                    style={S.trashBtn}>🗑</button>
+                    style={S.trashBtn}><Icon name="trash" size={18} color="#c98b94" /></button>
                 )}
               </div>
 
@@ -3039,7 +3040,7 @@ const S = {
   optInput: { flex: 1, fontSize: 15, padding: "9px 11px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd" },
 
   /* trash delete pattern */
-  trashBtn: { background: "none", border: "none", padding: "10px 12px", cursor: "pointer", color: "#d9c8c3", fontSize: 18, flexShrink: 0, lineHeight: 1 },
+  trashBtn: { background: "none", border: "none", padding: "8px 10px", cursor: "pointer", color: "#c98b94", flexShrink: 0, lineHeight: 1, display: "flex", alignItems: "center" },
   trashConfirm: { background: "#c2566b", color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" },
   trashCancel: { background: "#f4e8e4", color: "#b58e87", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" },
 
