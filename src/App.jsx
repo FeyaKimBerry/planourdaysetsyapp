@@ -335,6 +335,7 @@ function BootingView() {
 }
 
 const GUIDE_KEY = "planourdays-guide-seen";
+const SIGNED_OUT_KEY = "planourdays-signed-out";
 
 const GUIDE_SLIDES = [
   {
@@ -535,8 +536,9 @@ export default function WeddingPlanner() {
   const [state, setState] = useState(() => hydrate(storage.load()));
   const [tab, setTab] = useState("home");
   // entered = past the welcome screen; connected = Google Drive is linked.
-  // Skip welcome screen if user already has saved data on this device.
+  // Skip welcome screen if user has saved data AND hasn't explicitly signed out.
   const [entered, setEntered] = useState(() => {
+    if (localStorage.getItem(SIGNED_OUT_KEY)) return false;
     const saved = storage.load();
     return !!(saved && (saved.partner1 || saved.partner2 || saved.weddingDate || (saved.vendors && saved.vendors.length > 0)));
   });
@@ -622,6 +624,7 @@ export default function WeddingPlanner() {
     } catch {
       // Couldn't read Drive this moment; the debounced push will sync soon.
     }
+    localStorage.removeItem(SIGNED_OUT_KEY);
     setConnected(true);
     setTab("home");
     setEntered(true);
@@ -632,6 +635,7 @@ export default function WeddingPlanner() {
   };
 
   const enterLocalOnly = () => {
+    localStorage.removeItem(SIGNED_OUT_KEY);
     setTab("home");
     setEntered(true);
     const isExisting = hasRealData(storage.load());
@@ -646,6 +650,7 @@ export default function WeddingPlanner() {
     setConnected(false);
     setSyncStatus("idle");
     setEntered(false);
+    localStorage.setItem(SIGNED_OUT_KEY, "1");
   };
 
   if (booting) return <BootingView />;
