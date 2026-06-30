@@ -1273,6 +1273,9 @@ function ChecklistView({ state, update }) {
   const editTask = (bid, tid, patch) => update((s) => { const b = s.checklist.find((x) => x.id === bid); const t = b?.tasks.find((x) => x.id === tid); if (t) Object.assign(t, patch); return s; });
   const deleteTask = (bid, tid) => update((s) => { const b = s.checklist.find((x) => x.id === bid); if (b) b.tasks = b.tasks.filter((x) => x.id !== tid); return s; });
   const addTask = (bid, name) => update((s) => { const b = s.checklist.find((x) => x.id === bid); if (b) b.tasks.push({ id: uid(), name, done: false, due: "", note: "" }); return s; });
+  const editBucket = (bid, patch) => update((s) => { const b = s.checklist.find((x) => x.id === bid); if (b) Object.assign(b, patch); return s; });
+  const deleteBucket = (bid) => update((s) => { s.checklist = s.checklist.filter((x) => x.id !== bid); return s; });
+  const addBucket = () => update((s) => { s.checklist.push({ id: uid(), label: "New Section", tasks: [] }); return s; });
 
   return (
     <>
@@ -1311,6 +1314,11 @@ function ChecklistView({ state, update }) {
 
               {isOpen && (
                 <div style={S.cardBody}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0 4px" }}>
+                    <input style={{ ...S.fieldInput, flex: 1, fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600, color: "#6b4a45" }}
+                      value={bucket.label} onChange={(e) => editBucket(bucket.id, { label: e.target.value })} />
+                    <button style={{ ...S.deleteCat, flexShrink: 0 }} onClick={() => { deleteBucket(bucket.id); setOpenBucket(null); }}>Delete section</button>
+                  </div>
                   {bucket.tasks.map((t) => {
                     const open = expanded === t.id;
                     return (
@@ -1347,6 +1355,7 @@ function ChecklistView({ state, update }) {
             </div>
           );
         })}
+        <button style={S.addCat} onClick={addBucket}>+ Add section</button>
       </section>
     </>
   );
