@@ -2693,7 +2693,7 @@ function VenueComparisonView({ state, update }) {
       )}
 
       {/* ── Edit cards ── */}
-      <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b58e87", margin: "20px 0 10px" }}>Edit details</div>
+      {venues.length > 0 && <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b58e87", margin: "20px 0 10px" }}>Edit details</div>}
       <section>
         {venues.map((v) => {
           const isOpen = openVenue === v.id;
