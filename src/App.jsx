@@ -534,7 +534,8 @@ function GuideModal({ onClose }) {
 
 export default function WeddingPlanner() {
   const [state, setState] = useState(() => hydrate(storage.load()));
-  const [tab, setTab] = useState("home");
+  const [tab, setTab] = useState(() => localStorage.getItem("planourdays-tab") || "home");
+  const goTab = (t) => { setTab(t); localStorage.setItem("planourdays-tab", t); };
   // entered = past the welcome screen; connected = Google Drive is linked.
   // Skip welcome screen if user has saved data AND hasn't explicitly signed out.
   const [entered, setEntered] = useState(() => {
@@ -695,7 +696,7 @@ export default function WeddingPlanner() {
     <div style={S.page}>
       <style>{CSS}</style>
 
-      <button style={S.appLogoBtn} onClick={() => setTab("home")} aria-label="Home">
+      <button style={S.appLogoBtn} onClick={() => goTab("home")} aria-label="Home">
         <img src="/logo-mark.png" alt="Planourdays" style={S.appLogoImg} />
       </button>
 
@@ -704,7 +705,7 @@ export default function WeddingPlanner() {
           <button style={S.helpBtn} onClick={() => setShowGuide(true)} aria-label="Help">
             <span style={{ fontSize: 15, fontWeight: 700, color: "#b07a72", lineHeight: 1 }}>?</span>
           </button>
-          <button style={S.gearBtn} onClick={() => setTab("settings")} aria-label="Settings">
+          <button style={S.gearBtn} onClick={() => goTab("settings")} aria-label="Settings">
             <Icon name="gear" size={22} color="#b07a72" />
           </button>
         </>
@@ -714,14 +715,14 @@ export default function WeddingPlanner() {
       {showGuide && <GuideModal onClose={closeGuide} />}
 
       <div style={S.scroll}>
-        {tab === "home" && <HomeView state={state} update={update} go={setTab} />}
+        {tab === "home" && <HomeView state={state} update={update} go={goTab} />}
         {tab === "budget" && <BudgetView state={state} update={update} />}
         {tab === "checklist" && <ChecklistView state={state} update={update} />}
         {tab === "vendors" && <VendorsView state={state} update={update} />}
         {tab === "guests" && <GuestsView state={state} update={update} />}
         {tab === "seating" && <SeatingView state={state} update={update} />}
         {tab === "venues" && <VenueComparisonView state={state} update={update} />}
-        {tab === "settings" && <SettingsView state={state} update={update} setState={setStateStamped} go={setTab} connected={connected} onSignOut={handleSignOut} />}
+        {tab === "settings" && <SettingsView state={state} update={update} setState={setStateStamped} go={goTab} connected={connected} onSignOut={handleSignOut} />}
 
         <footer style={S.footer}>
           {connected
@@ -733,13 +734,13 @@ export default function WeddingPlanner() {
       </div>
 
       <nav style={S.nav}>
-        <NavBtn active={tab === "home"} onClick={() => setTab("home")} icon="home" label="Home" />
-        <NavBtn active={tab === "budget"} onClick={() => setTab("budget")} icon="budget" label="Budget" />
-        <NavBtn active={tab === "checklist"} onClick={() => setTab("checklist")} icon="check" label="Checklist" />
-        <NavBtn active={tab === "venues"} onClick={() => setTab("venues")} icon="venue" label="Venues" />
-        <NavBtn active={tab === "vendors"} onClick={() => setTab("vendors")} icon="vendor" label="Vendors" />
-        <NavBtn active={tab === "guests"} onClick={() => setTab("guests")} icon="guest" label="Guests" />
-        <NavBtn active={tab === "seating"} onClick={() => setTab("seating")} icon="seating" label="Seating" />
+        <NavBtn active={tab === "home"} onClick={() => goTab("home")} icon="home" label="Home" />
+        <NavBtn active={tab === "budget"} onClick={() => goTab("budget")} icon="budget" label="Budget" />
+        <NavBtn active={tab === "checklist"} onClick={() => goTab("checklist")} icon="check" label="Checklist" />
+        <NavBtn active={tab === "venues"} onClick={() => goTab("venues")} icon="venue" label="Venues" />
+        <NavBtn active={tab === "vendors"} onClick={() => goTab("vendors")} icon="vendor" label="Vendors" />
+        <NavBtn active={tab === "guests"} onClick={() => goTab("guests")} icon="guest" label="Guests" />
+        <NavBtn active={tab === "seating"} onClick={() => goTab("seating")} icon="seating" label="Seating" />
       </nav>
     </div>
   );
