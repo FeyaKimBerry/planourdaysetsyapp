@@ -2287,8 +2287,17 @@ function SettingsView({ state, update, setState, go, connected, onSignOut }) {
    fight page scroll on touch).
    ============================================================ */
 
+const TABLE_TYPES = [
+  { type: "Round",       icon: "⬤", capacity: 8  },
+  { type: "Long",        icon: "▬", capacity: 20 },
+  { type: "Sweetheart",  icon: "♥", capacity: 2  },
+  { type: "Kids",        icon: "★", capacity: 10 },
+  { type: "Custom",      icon: "✦", capacity: 8  },
+];
+
 function SeatingView({ state, update }) {
-  const [selectedGuest, setSelectedGuest] = useState(null); // guestId staged for tap-assign
+  const [selectedGuest, setSelectedGuest] = useState(null);
+  const [addingTable, setAddingTable] = useState(false);
 
   const tables = state.tables || [];
   const guests = state.guests || [];
@@ -2300,11 +2309,11 @@ function SeatingView({ state, update }) {
   const seatedCount = guests.length - unseated.length;
 
   /* ---- table mutations ---- */
-  const addTable = () =>
+  const addTable = (type, capacity) =>
     update((s) => {
       const n = (s.tables?.length || 0) + 1;
       if (!s.tables) s.tables = [];
-      s.tables.push({ id: uid(), name: `Table ${n}`, capacity: 8, seated: [] });
+      s.tables.push({ id: uid(), name: `${type} ${n}`, capacity, tableType: type, seated: [] });
       return s;
     });
   const editTable = (id, patch) =>
@@ -2386,6 +2395,7 @@ function SeatingView({ state, update }) {
                 cursor: armed ? "pointer" : "default",
               }}>
               <div style={S.tableTopRow}>
+                <span style={{ fontSize: 14, marginRight: 4, opacity: 0.7 }}>{TABLE_TYPES.find((x) => x.type === t.tableType)?.icon || "⬤"}</span>
                 <input style={S.tableName} value={t.name} onClick={(e) => e.stopPropagation()}
                   onChange={(e) => editTable(t.id, { name: e.target.value })} />
                 <button style={S.tableRemove} onClick={(e) => { e.stopPropagation(); removeTable(t.id); }}>×</button>
@@ -2435,7 +2445,25 @@ function SeatingView({ state, update }) {
           );
         })}
 
-        <button style={S.addTable} onClick={addTable}>+ Add table</button>
+        {addingTable ? (
+          <div style={{ ...S.table, cursor: "default", display: "flex", flexDirection: "column", gap: 8, justifyContent: "center" }}>
+            <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b58e87", fontWeight: 600, marginBottom: 4 }}>Choose table type</div>
+            {TABLE_TYPES.map((tt) => (
+              <button key={tt.type} onClick={() => { addTable(tt.type, tt.capacity); setAddingTable(false); }}
+                style={{ display: "flex", alignItems: "center", gap: 10, background: "#fdf4f1", border: "1px solid #f0e2dd", borderRadius: 10, padding: "10px 14px", cursor: "pointer", textAlign: "left" }}>
+                <span style={{ fontSize: 18, width: 24, textAlign: "center" }}>{tt.icon}</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "#6b4a45" }}>{tt.type}</div>
+                  <div style={{ fontSize: 11, color: "#b58e87" }}>{tt.capacity} seats</div>
+                </div>
+              </button>
+            ))}
+            <button onClick={() => setAddingTable(false)}
+              style={{ background: "none", border: "none", color: "#b58e87", fontSize: 13, cursor: "pointer", marginTop: 4 }}>Cancel</button>
+          </div>
+        ) : (
+          <button style={S.addTable} onClick={() => setAddingTable(true)}>+ Add table</button>
+        )}
       </div>
 
       {/* UNSEATED TRAY */}
