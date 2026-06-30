@@ -1637,6 +1637,10 @@ function GuestsView({ state, update }) {
   const [filter, setFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [managing, setManaging] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState({});
+  const toggleGroup = (grp) => setCollapsedGroups((prev) => ({ ...prev, [grp]: !prev[grp] }));
+  const [newGroupFor, setNewGroupFor] = useState(null);
+  const [newGroupDraft, setNewGroupDraft] = useState("");
 
   const addOption = (listKey, val) =>
     update((s) => { if (val.trim() && !s[listKey].includes(val.trim())) s[listKey].push(val.trim()); return s; });
@@ -1750,63 +1754,137 @@ function GuestsView({ state, update }) {
           <div style={S.emptyNote}>No guests match your search or filter.</div>
         )}
 
-        {shown.map((g) => {
-          const isOpen = openGuest === g.id;
-          const c = rsvpColor(g.rsvp);
-          return (
-            <div key={g.id} style={S.card}>
-              <div style={S.cardHead} onClick={() => setOpenGuest(isOpen ? null : g.id)}>
-                <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
-                <div style={S.catMain}>
-                  <div style={S.catName}>{g.name || "Guest"}</div>
-                  <div style={S.catNumbers}>
-                    <span style={{ ...S.diffPill, background: c.bg, color: c.fg }}>{g.rsvp}</span>
-                    {Number(g.party) > 1 && <span style={S.catOf}>party of {g.party}</span>}
-                    {g.group && <span style={S.catOf}>{g.group}</span>}
-                  </div>
-                </div>
-              </div>
+        {(() => {
+          // Group guests: named groups first (sorted), then ungrouped under "Other"
+          const groupNames = [...new Set(shown.map((g) => g.group || ""))];
+          const named = groupNames.filter((x) => x).sort();
+          const hasUngrouped = groupNames.includes("");
+          const allGroups = [...named, ...(hasUngrouped ? [""] : [])];
 
-              {isOpen && (
-                <div style={S.cardBody}>
-                  <div style={S.vendorFields}>
-                    <Field label="Guest name">
-                      <input style={S.fieldInput} placeholder="Guest name" value={g.name}
-                        onChange={(e) => editGuest(g.id, { name: e.target.value })} />
-                    </Field>
-                    <Field label="RSVP">
-                      <select style={S.fieldSelect} value={g.rsvp} onChange={(e) => editGuest(g.id, { rsvp: e.target.value })}>
-                        {RSVP_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
-                      </select>
-                    </Field>
-                    <Field label="Party size (incl. guest)">
-                      <input type="number" inputMode="numeric" min="1" style={S.fieldInput}
-                        value={g.party} onChange={(e) => editGuest(g.id, { party: Math.max(1, Number(e.target.value) || 1) })} />
-                    </Field>
-                    <Field label="Meal">
-                      <select style={S.fieldSelect} value={g.meal} onChange={(e) => editGuest(g.id, { meal: e.target.value })}>
-                        <option value="">—</option>
-                        {state.mealOptions.map((m) => <option key={m} value={m}>{m}</option>)}
-                      </select>
-                    </Field>
-                    <Field label="Group / side">
-                      <select style={S.fieldSelect} value={g.group} onChange={(e) => editGuest(g.id, { group: e.target.value })}>
-                        <option value="">—</option>
-                        {state.groupOptions.map((gr) => <option key={gr} value={gr}>{gr}</option>)}
-                      </select>
-                    </Field>
+          return allGroups.map((grp) => {
+            const members = shown.filter((g) => (g.group || "") === grp);
+            const label = grp || "No group";
+            const isCollapsed = !!collapsedGroups[grp];
+            const yesCount = members.filter((g) => g.rsvp === "Yes").length;
+            return (
+              <div key={grp || "__none__"} style={{ marginBottom: 6 }}>
+                {/* Group header */}
+                <div onClick={() => toggleGroup(grp)}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", background: "#fdf4f1", borderRadius: 10, cursor: "pointer", userSelect: "none", marginBottom: 2 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 13, color: "#b58e87", transition: "transform 0.15s", display: "inline-block", transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)" }}>›</span>
+                    <span style={{ fontFamily: "'Fraunces', serif", fontSize: 15, fontWeight: 600, color: "#6b4a45" }}>{label}</span>
                   </div>
-                  <input style={S.taskNote} placeholder="Notes (dietary needs, address)…" value={g.notes}
-                    onChange={(e) => editGuest(g.id, { notes: e.target.value })} />
-                  <button style={{ ...S.deleteCat, marginTop: 14, display: "block" }} onClick={() => deleteGuest(g.id)}>
-                    Remove guest
-                  </button>
-                  <button style={S.doneBtn} onClick={() => setOpenGuest(null)}>Done</button>
+                  <span style={{ fontSize: 12, color: "#c4aaa4" }}>
+                    {yesCount > 0 ? `${yesCount} coming · ` : ""}{members.length} guest{members.length !== 1 ? "s" : ""}
+                  </span>
                 </div>
-              )}
-            </div>
-          );
-        })}
+
+                {/* Compact rows */}
+                {!isCollapsed && (
+                  <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #f0e2dd", overflow: "hidden" }}>
+                    {members.map((g, idx) => {
+                      const isOpen = openGuest === g.id;
+                      const c = rsvpColor(g.rsvp);
+                      return (
+                        <div key={g.id}>
+                          <div onClick={() => setOpenGuest(isOpen ? null : g.id)}
+                            style={{ display: "flex", alignItems: "center", padding: "10px 14px", borderBottom: idx < members.length - 1 || isOpen ? "1px solid #f7ece8" : "none", cursor: "pointer", gap: 10 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 15, fontWeight: 600, color: "#3a2e2c", fontFamily: "'Fraunces', serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {g.name || "Guest"}
+                              </div>
+                              {(g.meal || Number(g.party) > 1) && (
+                                <div style={{ fontSize: 12, color: "#b58e87", marginTop: 1 }}>
+                                  {g.meal && <span>{g.meal}</span>}
+                                  {g.meal && Number(g.party) > 1 && <span> · </span>}
+                                  {Number(g.party) > 1 && <span>+{Number(g.party) - 1}</span>}
+                                </div>
+                              )}
+                            </div>
+                            <span style={{ ...S.diffPill, background: c.bg, color: c.fg, fontSize: 11, flexShrink: 0 }}>{g.rsvp}</span>
+                            <span style={{ color: "#d9c8c3", fontSize: 16, flexShrink: 0 }}>›</span>
+                          </div>
+
+                          {isOpen && (
+                            <div style={{ ...S.cardBody, borderTop: "none", borderBottom: idx < members.length - 1 ? "1px solid #f7ece8" : "none" }}>
+                              <div style={S.vendorFields}>
+                                <Field label="Guest name">
+                                  <input style={S.fieldInput} placeholder="Guest name" value={g.name}
+                                    onChange={(e) => editGuest(g.id, { name: e.target.value })} />
+                                </Field>
+                                <Field label="RSVP">
+                                  <select style={S.fieldSelect} value={g.rsvp} onChange={(e) => editGuest(g.id, { rsvp: e.target.value })}>
+                                    {RSVP_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
+                                  </select>
+                                </Field>
+                                <Field label="Party size (incl. guest)">
+                                  <input type="number" inputMode="numeric" min="1" style={S.fieldInput}
+                                    value={g.party} onChange={(e) => editGuest(g.id, { party: Math.max(1, Number(e.target.value) || 1) })} />
+                                </Field>
+                                <Field label="Meal">
+                                  <select style={S.fieldSelect} value={g.meal} onChange={(e) => editGuest(g.id, { meal: e.target.value })}>
+                                    <option value="">—</option>
+                                    {state.mealOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+                                  </select>
+                                </Field>
+                                <Field label="Group / side">
+                                  <select style={S.fieldSelect} value={g.group}
+                                    onChange={(e) => {
+                                      if (e.target.value === "__add__") { setNewGroupFor(g.id); setNewGroupDraft(""); }
+                                      else editGuest(g.id, { group: e.target.value });
+                                    }}>
+                                    <option value="">—</option>
+                                    {state.groupOptions.map((gr) => <option key={gr} value={gr}>{gr}</option>)}
+                                    <option value="__add__">+ New group…</option>
+                                  </select>
+                                  {newGroupFor === g.id && (
+                                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                                      <input
+                                        ref={(el) => el && setTimeout(() => el.focus(), 80)}
+                                        style={{ ...S.fieldInput, width: "100%", boxSizing: "border-box", fontSize: 15 }}
+                                        placeholder="Type group name…"
+                                        value={newGroupDraft}
+                                        onChange={(e) => setNewGroupDraft(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter" && newGroupDraft.trim()) {
+                                            addOption("groupOptions", newGroupDraft.trim());
+                                            editGuest(g.id, { group: newGroupDraft.trim() });
+                                            setNewGroupFor(null); setNewGroupDraft("");
+                                          } else if (e.key === "Escape") { setNewGroupFor(null); setNewGroupDraft(""); }
+                                        }} />
+                                      <div style={{ display: "flex", gap: 8 }}>
+                                        <button style={{ ...S.addBtn, marginTop: 0, flex: 1, fontSize: 14, padding: "12px" }}
+                                          onClick={() => {
+                                            if (!newGroupDraft.trim()) return;
+                                            addOption("groupOptions", newGroupDraft.trim());
+                                            editGuest(g.id, { group: newGroupDraft.trim() });
+                                            setNewGroupFor(null); setNewGroupDraft("");
+                                          }}>Save group</button>
+                                        <button style={{ background: "transparent", border: "1px solid #f0e2dd", borderRadius: 10, padding: "12px 16px", color: "#b58e87", fontSize: 14, cursor: "pointer" }}
+                                          onClick={() => { setNewGroupFor(null); setNewGroupDraft(""); }}>Cancel</button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </Field>
+                              </div>
+                              <input style={S.taskNote} placeholder="Notes (dietary needs, address)…" value={g.notes}
+                                onChange={(e) => editGuest(g.id, { notes: e.target.value })} />
+                              <button style={{ ...S.deleteCat, marginTop: 14, display: "block" }} onClick={() => deleteGuest(g.id)}>
+                                Remove guest
+                              </button>
+                              <button style={S.doneBtn} onClick={() => setOpenGuest(null)}>Done</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          });
+        })()}
 
         <button style={S.addCat} onClick={addGuest}>+ Add guest</button>
       </section>
