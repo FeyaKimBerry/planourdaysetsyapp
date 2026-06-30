@@ -528,7 +528,11 @@ export default function WeddingPlanner() {
   const [state, setState] = useState(() => hydrate(storage.load()));
   const [tab, setTab] = useState("home");
   // entered = past the welcome screen; connected = Google Drive is linked.
-  const [entered, setEntered] = useState(false);
+  // Skip welcome screen if user already has saved data on this device.
+  const [entered, setEntered] = useState(() => {
+    const saved = storage.load();
+    return !!(saved && (saved.partner1 || saved.partner2 || saved.weddingDate || (saved.vendors && saved.vendors.length > 0)));
+  });
   const [connected, setConnected] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
