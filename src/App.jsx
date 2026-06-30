@@ -2354,7 +2354,7 @@ function VenueComparisonView({ state, update }) {
   const addVenue = () =>
     update((s) => {
       if (!s.venues) s.venues = [];
-      s.venues.push({ id: uid(), name: "New Venue", price: 0, capacity: 0, catering: false, location: "", available: "", notes: "", pros: "", cons: "", chosen: false });
+      s.venues.push({ id: uid(), name: "New Venue", price: 0, capacity: 0, catering: false, location: "", available: "", notes: "", pros: "", cons: "", chosen: false, shortlisted: false });
       return s;
     });
 
@@ -2427,6 +2427,19 @@ function VenueComparisonView({ state, update }) {
       return s;
     });
 
+  const shortlisted = venues.filter((v) => v.shortlisted || v.chosen);
+  const tableVenues = shortlisted.length > 0 ? shortlisted : venues.slice(0, 4);
+
+  const COMPARE_ROWS = [
+    { key: "price",     label: "Price",      render: (v) => v.price > 0 ? fmt(v.price) : "—" },
+    { key: "capacity",  label: "Capacity",   render: (v) => v.capacity > 0 ? `${v.capacity} guests` : "—" },
+    { key: "catering",  label: "Catering",   render: (v) => v.catering ? "✓ Included" : "✗ Not included" },
+    { key: "available", label: "Our date",   render: (v) => v.available || "—" },
+    { key: "location",  label: "Location",   render: (v) => v.location || "—" },
+    { key: "pros",      label: "Pros",       render: (v) => v.pros || "—" },
+    { key: "cons",      label: "Cons",       render: (v) => v.cons || "—" },
+  ];
+
   return (
     <>
       <header style={S.header}>
@@ -2453,15 +2466,75 @@ function VenueComparisonView({ state, update }) {
         <div style={S.emptyNote}>Add venues you're considering — compare price, capacity, catering and more side by side.</div>
       )}
 
+      {/* ── Comparison table ── */}
+      {venues.length > 0 && (
+        <section style={{ ...S.dashboard, padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "12px 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b58e87", fontWeight: 600 }}>Comparison</span>
+            <span style={{ fontSize: 12, color: "#c4aaa4" }}>
+  {shortlisted.length > 0 ? `${shortlisted.length} venue${shortlisted.length > 1 ? "s" : ""} in comparison` : "★ Star a venue below to add it here"}
+            </span>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: tableVenues.length > 1 ? tableVenues.length * 150 : "100%" }}>
+              <thead>
+                <tr>
+                  <th style={S.cmpRowLabel} />
+                  {tableVenues.map((v) => (
+                    <th key={v.id} style={{ ...S.cmpColHead, borderColor: v.chosen ? "#b8d4b4" : "#f0e2dd", background: v.chosen ? "#f4faf3" : "#fff" }}>
+                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 15, fontWeight: 600, color: "#6b4a45" }}>{v.name}</div>
+                      {v.chosen && <span style={{ ...S.diffPill, background: "#e4eede", color: "#5c7a59", fontSize: 10, marginTop: 4, display: "inline-block" }}>Chosen</span>}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {COMPARE_ROWS.map((row) => (
+                  <tr key={row.key}>
+                    <td style={S.cmpRowLabel}>{row.label}</td>
+                    {tableVenues.map((v) => {
+                      const val = row.render(v);
+                      const isGood = row.key === "catering" && v.catering;
+                      const isBad = row.key === "catering" && !v.catering;
+                      return (
+                        <td key={v.id} style={{ ...S.cmpCell, background: v.chosen ? "#f4faf3" : "#fff", color: isGood ? "#5c7a59" : isBad ? "#b58e87" : "#3a2e2c" }}>
+                          {val}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                <tr>
+                  <td style={S.cmpRowLabel} />
+                  {tableVenues.map((v) => (
+                    <td key={v.id} style={{ ...S.cmpCell, background: v.chosen ? "#f4faf3" : "#fff", paddingTop: 12, paddingBottom: 14 }}>
+                      {!v.chosen ? (
+                        <button style={{ ...S.addBtn, marginTop: 0, fontSize: 13, padding: "10px 8px" }} onClick={() => chooseVenue(v.id)}>
+                          Choose
+                        </button>
+                      ) : (
+                        <div style={{ fontSize: 13, color: "#5c7a59", fontWeight: 600, textAlign: "center" }}>✓ Chosen</div>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* ── Edit cards ── */}
+      <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b58e87", margin: "20px 0 10px" }}>Edit details</div>
       <section>
         {venues.map((v) => {
           const isOpen = openVenue === v.id;
           return (
             <div key={v.id} style={{ ...S.card, borderColor: v.chosen ? "#b8d4b4" : "#f0e2dd" }}>
-              <div style={S.cardHead} onClick={() => setOpenVenue(isOpen ? null : v.id)}>
+              <div style={{ ...S.cardHead, display: "flex", alignItems: "center" }} onClick={() => setOpenVenue(isOpen ? null : v.id)}>
                 <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
-                <div style={S.catMain}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <div style={{ ...S.catMain, flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={S.catName}>{v.name || "New Venue"}</div>
                     {v.chosen && <span style={{ ...S.diffPill, background: "#e4eede", color: "#5c7a59", fontSize: 11 }}>Chosen</span>}
                   </div>
@@ -2471,6 +2544,13 @@ function VenueComparisonView({ state, update }) {
                     {v.catering && <span style={{ ...S.diffPill, background: "#faf0d8", color: "#a8862f" }}>Catering incl.</span>}
                   </div>
                 </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); editVenue(v.id, { shortlisted: !v.shortlisted }); }}
+                  title={v.shortlisted ? "Remove from comparison table" : "Add to comparison table"}
+                  style={{ background: "none", border: "none", fontSize: 13, cursor: "pointer", padding: "4px 6px", lineHeight: 1.3, color: v.shortlisted ? "#e8a838" : "#c4aaa4", display: "flex", flexDirection: "column", alignItems: "center", gap: 1, flexShrink: 0 }}>
+                  <span style={{ fontSize: 18 }}>{v.shortlisted ? "★" : "☆"}</span>
+                  <span style={{ fontSize: 10 }}>{v.shortlisted ? "In table" : "Compare"}</span>
+                </button>
               </div>
 
               {isOpen && (
@@ -2506,8 +2586,7 @@ function VenueComparisonView({ state, update }) {
                   </div>
 
                   <div style={{ marginTop: 14 }}>
-                    <button
-                      onClick={() => editVenue(v.id, { catering: !v.catering })}
+                    <button onClick={() => editVenue(v.id, { catering: !v.catering })}
                       style={{ ...S.statusToggle, color: v.catering ? "#5c7a59" : "#b58e87", background: v.catering ? "#e4eede" : "#fbf6f3", border: "1px solid", borderColor: v.catering ? "#b8d4b4" : "#f0e2dd" }}>
                       {v.catering ? "✓ Catering included" : "Catering not included"}
                     </button>
@@ -2779,6 +2858,11 @@ const S = {
   optList: { marginTop: 10 },
   optRow: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 },
   optInput: { flex: 1, fontSize: 15, padding: "9px 11px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd" },
+
+  /* venue comparison table */
+  cmpRowLabel: { fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", color: "#b58e87", padding: "10px 14px", textAlign: "left", whiteSpace: "nowrap", borderBottom: "1px solid #f7ece8", background: "#fdf9f8", fontWeight: 600 },
+  cmpColHead: { padding: "14px 12px", textAlign: "center", borderBottom: "2px solid #f0e2dd", borderLeft: "1px solid #f7ece8" },
+  cmpCell: { padding: "10px 12px", textAlign: "center", fontSize: 13, borderBottom: "1px solid #f7ece8", borderLeft: "1px solid #f7ece8", verticalAlign: "top", lineHeight: 1.5 },
 
   /* help button */
   helpBtn: { position: "absolute", top: 20, right: 62, width: 36, height: 36, borderRadius: 12, background: "linear-gradient(135deg,#f9ede9,#f4e0da)", border: "1px solid #eac8bf", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, boxShadow: "0 4px 14px -6px rgba(180,110,100,0.45)" },
