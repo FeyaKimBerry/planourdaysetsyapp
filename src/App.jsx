@@ -380,6 +380,7 @@ function BootingView() {
 
 const GUIDE_KEY = "planourdays-guide-seen";
 const SIGNED_OUT_KEY = "planourdays-signed-out";
+const LAST_SYNC_KEY = "planourdays-last-sync";
 
 const GUIDE_SLIDES = [
   {
@@ -601,17 +602,30 @@ export default function WeddingPlanner() {
   // Independent save-state flags (dirty / inFlight / health / neverSynced).
   // saveStateLabel() maps them to what the save indicator shows.
   const [saveState, setSaveState] = useState(INITIAL_SAVE_STATE);
+  // Timestamp of the last successful push/pull (ms). Persisted so the
+  // settings panel can show "last synced" across reloads.
+  const [lastSync, setLastSync] = useState(
+    () => Number(localStorage.getItem(LAST_SYNC_KEY)) || null
+  );
   // True only while we silently restore a previous Google session on first load.
+  // A user who chose local-only is never auto-restored to sync.
   const [booting, setBooting] = useState(
-    () => drive.isConfigured() && drive.isConnected()
+    () => getIntent() !== "local" && drive.isConfigured() && drive.isConnected()
   );
 
   const pushTimer = useRef(null);
   const didMount = useRef(false);
 
+  const recordSync = useCallback(() => {
+    const t = Date.now();
+    setLastSync(t);
+    try { localStorage.setItem(LAST_SYNC_KEY, String(t)); } catch {}
+  }, []);
+
   // First load: if the user linked Google before, restore the session silently
   // (no UI) and reconcile the Drive copy with the local copy (last-write-wins).
   useEffect(() => {
+    if (intent === "local") return; // respect an explicit local-only choice
     if (!(drive.isConfigured() && drive.isConnected())) return;
     let cancelled = false;
     (async () => {
@@ -630,6 +644,7 @@ export default function WeddingPlanner() {
         if (cancelled) return;
         setState((local) => reconcile(local, remote ? hydrate(remote) : null));
         setSaveState((s) => ({ ...s, health: "ok", neverSynced: false }));
+        recordSync();
       } catch {
         // Linked, but Drive unreachable right now.
         setSaveState((s) => ({ ...s, health: "offline" }));
@@ -659,9 +674,10 @@ export default function WeddingPlanner() {
       setSaveState((s) => ({ ...s, inFlight: true }));
       drive
         .push(state)
-        .then(() =>
-          setSaveState((s) => ({ ...s, dirty: false, inFlight: false, health: "ok", neverSynced: false }))
-        )
+        .then(() => {
+          setSaveState((s) => ({ ...s, dirty: false, inFlight: false, health: "ok", neverSynced: false }));
+          recordSync();
+        })
         .catch((err) => {
           // Keep dirty set so the edit is retried. A dead token
           // (not_authenticated) means the session lapsed mid-use:
@@ -736,6 +752,7 @@ export default function WeddingPlanner() {
       try {
         const remote = await drive.pull();
         setState((local) => reconcile(local, remote ? hydrate(remote) : null));
+        recordSync();
       } catch {
         // Couldn't read Drive this instant; the resumed push will sync soon.
       }
@@ -743,6 +760,41 @@ export default function WeddingPlanner() {
       setConnected(true); // -> SYNCING; the push effect flushes dirty edits
     } catch {
       // Cancelled or failed — stay in NEEDS_RECONNECT, edits untouched.
+    } finally {
+      setReconnecting(false);
+    }
+  };
+
+  // Settings toggle: sync -> local. Stops pushes and cancels any pending
+  // one, but leaves the Drive file untouched so switching back is lossless.
+  const switchToLocal = () => {
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    setConnected(false);
+    setSaveState(INITIAL_SAVE_STATE);
+    chooseIntent("local");
+  };
+
+  // Settings toggle: local -> sync. Runs signIn -> pull -> reconcile, then
+  // flips connected on so the push effect flushes the merged state. Reuses
+  // the `reconnecting` busy flag so rapid toggling can't double-push.
+  const switchToSync = async () => {
+    if (reconnecting) return;
+    setReconnecting(true);
+    try {
+      await drive.signIn();
+      try {
+        const remote = await drive.pull();
+        setState((local) => reconcile(local, remote ? hydrate(remote) : null));
+        recordSync();
+      } catch {
+        // Couldn't read Drive this instant; the debounced push will sync soon.
+      }
+      localStorage.removeItem(SIGNED_OUT_KEY);
+      setSaveState((s) => ({ ...s, health: "ok" }));
+      setConnected(true);
+      chooseIntent("sync");
+    } catch {
+      // Cancelled or failed — stay local, nothing changes.
     } finally {
       setReconnecting(false);
     }
@@ -823,7 +875,8 @@ export default function WeddingPlanner() {
         {tab === "guests" && <GuestsView state={state} update={update} />}
         {tab === "seating" && <SeatingView state={state} update={update} />}
         {tab === "venues" && <VenueComparisonView state={state} update={update} />}
-        {tab === "settings" && <SettingsView state={state} update={update} setState={setStateStamped} go={goTab} connected={connected} onSignOut={handleSignOut} />}
+        {tab === "settings" && <SettingsView state={state} update={update} setState={setStateStamped} go={goTab} connected={connected} onSignOut={handleSignOut}
+          sync={{ intent, syncState, saveState, lastSync, busy: reconnecting, onSwitchToLocal: switchToLocal, onSwitchToSync: switchToSync, onReconnect: handleReconnect }} />}
 
         <footer style={S.footer}>
           {intent === "sync" ? (
@@ -2253,7 +2306,19 @@ function buildPlannerHtml(state) {
    SETTINGS VIEW
    ============================================================ */
 
-function SettingsView({ state, update, setState, go, connected, onSignOut }) {
+// "3 min ago" / "2 hours ago" / a date for older syncs. null = never.
+function relTime(ts) {
+  if (!ts) return "never";
+  const diff = Date.now() - ts;
+  if (diff < 60 * 1000) return "just now";
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function SettingsView({ state, update, setState, go, connected, onSignOut, sync }) {
   const [confirmingReset, setConfirmingReset] = useState(false);
 
   const setCurrency = (code) => update((s) => { s.currency = code; return s; });
@@ -2368,6 +2433,9 @@ function SettingsView({ state, update, setState, go, connected, onSignOut }) {
         )}
       </section>
 
+      {/* Sync */}
+      {sync && <SyncPanel sync={sync} />}
+
       <section style={S.dashboard}>
         <div style={S.smallLabel}>Account</div>
         <p style={S.settingHint}>
@@ -2380,6 +2448,64 @@ function SettingsView({ state, update, setState, go, connected, onSignOut }) {
         </button>
       </section>
     </>
+  );
+}
+
+// One place to see and control how the plan is stored. Reflects the
+// live sync/save state (including NEEDS_RECONNECT) and lets the user
+// toggle between syncing to Google Drive and this-device-only.
+function SyncPanel({ sync }) {
+  const { intent, syncState, saveState, lastSync, busy, onSwitchToLocal, onSwitchToSync, onReconnect } = sync;
+  const isSync = intent === "sync";
+  const needsReconnect = syncState === NEEDS_RECONNECT;
+  const statusLabel = needsReconnect ? "Reconnect needed" : saveStateLabel(saveState).label;
+
+  const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid #f4e8e4", fontSize: 14 };
+
+  return (
+    <section style={S.dashboard}>
+      <div style={S.smallLabel}>Sync</div>
+      <p style={S.settingHint}>
+        {isSync
+          ? "Your plan syncs privately to your own Google Drive, so it's backed up and follows you across devices."
+          : "Your plan is saved on this device only. Turn on sync to back it up to your own Google Drive and use it on other devices."}
+      </p>
+
+      <div style={{ margin: "6px 0 14px" }}>
+        <div style={rowStyle}>
+          <span style={{ color: "#7a655f" }}>Storage</span>
+          <span style={{ fontWeight: 600, color: "#3a2e2c" }}>{isSync ? "Google Drive" : "This device only"}</span>
+        </div>
+        {isSync && (
+          <>
+            <div style={rowStyle}>
+              <span style={{ color: "#7a655f" }}>Status</span>
+              <span style={{ fontWeight: 600, color: needsReconnect ? "#b0524a" : "#3a2e2c" }}>{statusLabel}</span>
+            </div>
+            <div style={{ ...rowStyle, borderBottom: "none" }}>
+              <span style={{ color: "#7a655f" }}>Last synced</span>
+              <span style={{ fontWeight: 600, color: "#3a2e2c" }}>{relTime(lastSync)}</span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {needsReconnect && (
+        <button style={{ ...S.settingBtn, opacity: busy ? 0.6 : 1 }} onClick={onReconnect} disabled={busy}>
+          {busy ? "Reconnecting…" : "Reconnect Google Drive"}
+        </button>
+      )}
+
+      {isSync ? (
+        <button style={{ ...S.settingBtn, ...S.settingBtnOutline, marginTop: needsReconnect ? 10 : 0 }} onClick={onSwitchToLocal} disabled={busy}>
+          Switch to this-device-only
+        </button>
+      ) : (
+        <button style={{ ...S.settingBtn, opacity: busy ? 0.6 : 1 }} onClick={onSwitchToSync} disabled={busy}>
+          {busy ? "Connecting…" : "Turn on sync with Google"}
+        </button>
+      )}
+    </section>
   );
 }
 
