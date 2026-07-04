@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import * as drive from "./googleDrive";
+import { getIntent, setIntent, appSyncState, FRONT_DOOR } from "./sync";
 
 /* ============================================================
    STORAGE ADAPTER LAYER
@@ -536,14 +537,22 @@ export default function WeddingPlanner() {
   const [state, setState] = useState(() => hydrate(storage.load()));
   const [tab, setTab] = useState(() => localStorage.getItem("planourdays-tab") || "home");
   const goTab = (t) => { setTab(t); localStorage.setItem("planourdays-tab", t); };
-  // entered = past the welcome screen; connected = Google Drive is linked.
-  // Skip welcome screen if user has saved data AND hasn't explicitly signed out.
-  const [entered, setEntered] = useState(() => {
-    if (localStorage.getItem(SIGNED_OUT_KEY)) return false;
-    const saved = storage.load();
-    return !!(saved && (saved.partner1 || saved.partner2 || saved.weddingDate || (saved.vendors && saved.vendors.length > 0)));
+  // intent = the user's stored choice about how data is saved
+  // ("sync" | "local" | null). connected = Google Drive holds a live
+  // token this session. Together they derive appSyncState() below.
+  const [intent, setIntentState] = useState(() => {
+    const stored = getIntent();
+    if (stored) return stored;
+    // Migrate users who chose before the intent store existed: honour a
+    // prior sign-out, otherwise infer intent from their old signals.
+    if (localStorage.getItem(SIGNED_OUT_KEY)) return null;
+    if (drive.isConfigured() && drive.isConnected()) return setIntent("sync");
+    if (hasRealData(storage.load())) return setIntent("local");
+    return null;
   });
   const [connected, setConnected] = useState(false);
+  // Persist the choice and update React state together.
+  const chooseIntent = (v) => { setIntent(v); setIntentState(v); };
   const [showGuide, setShowGuide] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   // idle | syncing | synced | offline | error — drives the footer indicator.
@@ -579,7 +588,7 @@ export default function WeddingPlanner() {
       }
       if (cancelled) return;
       setConnected(true);
-      setEntered(true);
+      chooseIntent("sync");
       setBooting(false);
     })();
     return () => { cancelled = true; };
@@ -628,7 +637,7 @@ export default function WeddingPlanner() {
     localStorage.removeItem(SIGNED_OUT_KEY);
     setConnected(true);
     setTab("home");
-    setEntered(true);
+    chooseIntent("sync");
     const isExisting = hasRealData(storage.load());
     if (isExisting) { localStorage.setItem(SETUP_KEY, "1"); localStorage.setItem(GUIDE_KEY, "1"); return; }
     if (!localStorage.getItem(SETUP_KEY)) setShowSetup(true);
@@ -638,7 +647,7 @@ export default function WeddingPlanner() {
   const enterLocalOnly = () => {
     localStorage.removeItem(SIGNED_OUT_KEY);
     setTab("home");
-    setEntered(true);
+    chooseIntent("local");
     const isExisting = hasRealData(storage.load());
     if (isExisting) { localStorage.setItem(SETUP_KEY, "1"); localStorage.setItem(GUIDE_KEY, "1"); return; }
     if (!localStorage.getItem(SETUP_KEY)) setShowSetup(true);
@@ -650,13 +659,16 @@ export default function WeddingPlanner() {
     drive.signOut();
     setConnected(false);
     setSyncStatus("idle");
-    setEntered(false);
+    chooseIntent(null);
     localStorage.setItem(SIGNED_OUT_KEY, "1");
   };
 
   if (booting) return <BootingView />;
 
-  if (!entered) {
+  // One place derives the app's sync state from the two facts above.
+  const syncState = appSyncState(intent, connected);
+
+  if (syncState === FRONT_DOOR) {
     return (
       <WelcomeView
         configured={drive.isConfigured()}
