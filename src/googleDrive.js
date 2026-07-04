@@ -57,6 +57,18 @@ function clearConnection() {
   } catch {}
 }
 
+// Drop only the token (e.g. after a 401) while staying "opted in".
+// Keeps `connected: true` so silentRefresh() can retry later and the
+// app can show a reconnect prompt instead of dropping to the front door.
+function dropToken() {
+  const c = getConnection();
+  if (!c) return;
+  const { token, expiry, ...rest } = c;
+  try {
+    window.localStorage.setItem(CONN_KEY, JSON.stringify({ ...rest, connected: true }));
+  } catch {}
+}
+
 function saveToken(token, expiresIn) {
   // Refresh a minute early so a token never expires mid-request.
   setConnection({
@@ -200,7 +212,7 @@ async function findFileId(token) {
   const url = `${DRIVE_FILES}?spaces=appDataFolder&q=${q}&fields=files(id)`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (res.status === 401) {
-    clearConnection();
+    dropToken();
     throw new Error("not_authenticated");
   }
   if (!res.ok) throw new Error("drive_list_failed");

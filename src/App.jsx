@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import * as drive from "./googleDrive";
-import { getIntent, setIntent, appSyncState, FRONT_DOOR, INITIAL_SAVE_STATE, saveStateLabel } from "./sync";
+import { getIntent, setIntent, appSyncState, FRONT_DOOR, NEEDS_RECONNECT, INITIAL_SAVE_STATE, saveStateLabel } from "./sync";
 
 /* ============================================================
    STORAGE ADAPTER LAYER
@@ -335,6 +335,36 @@ function SaveIndicator({ saveState }) {
   );
 }
 
+// Shown when the Google session lapsed mid-use (NEEDS_RECONNECT). The
+// user's edits are safe locally; this offers a one-tap re-consent that
+// resumes syncing. Dismissing it just leaves them in local-safe mode.
+function ReconnectBanner({ busy, onReconnect }) {
+  return (
+    <div
+      style={{
+        display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+        background: "#fbecd8", borderBottom: "1px solid #f0d9b3",
+        color: "#7a5a1e", padding: "10px 16px", fontSize: 14,
+      }}
+    >
+      <span style={{ flex: 1, minWidth: 180 }}>
+        Your Google session ended. Your changes are saved on this device — reconnect to sync them.
+      </span>
+      <button
+        onClick={onReconnect}
+        disabled={busy}
+        style={{
+          border: "none", borderRadius: 999, padding: "8px 18px",
+          background: "#b07a72", color: "#fff", fontWeight: 600, fontSize: 14,
+          cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, flex: "none",
+        }}
+      >
+        {busy ? "Reconnecting…" : "Reconnect"}
+      </button>
+    </div>
+  );
+}
+
 // Brief splash while we silently restore a previous Google session on load.
 function BootingView() {
   return (
@@ -588,7 +618,10 @@ export default function WeddingPlanner() {
       const token = await drive.silentRefresh();
       if (cancelled) return;
       if (!token) {
-        // Session lapsed — show the welcome screen so they can re-consent.
+        // Session lapsed but they're still opted in: stay in the app in
+        // NEEDS_RECONNECT (connected stays false) and surface a reconnect
+        // prompt — don't drop to the front door or silently to local-only.
+        setSaveState((s) => ({ ...s, health: "error" }));
         setBooting(false);
         return;
       }
@@ -629,11 +662,13 @@ export default function WeddingPlanner() {
         .then(() =>
           setSaveState((s) => ({ ...s, dirty: false, inFlight: false, health: "ok", neverSynced: false }))
         )
-        .catch(() =>
-          // Keep dirty set so the edit is retried; distinguish
-          // offline (no network) from a real sync error.
-          setSaveState((s) => ({ ...s, inFlight: false, health: navigator.onLine ? "error" : "offline" }))
-        );
+        .catch((err) => {
+          // Keep dirty set so the edit is retried. A dead token
+          // (not_authenticated) means the session lapsed mid-use:
+          // flip to NEEDS_RECONNECT so the reconnect prompt appears.
+          if (err && err.message === "not_authenticated") setConnected(false);
+          setSaveState((s) => ({ ...s, inFlight: false, health: navigator.onLine ? "error" : "offline" }));
+        });
     }, 2500);
   }, [state, connected]);
 
@@ -685,6 +720,32 @@ export default function WeddingPlanner() {
     setSaveState(INITIAL_SAVE_STATE);
     chooseIntent(null);
     localStorage.setItem(SIGNED_OUT_KEY, "1");
+  };
+
+  // Re-consent after the token lapsed (NEEDS_RECONNECT). Keeps intent
+  // "sync" throughout; on success reconciles with Drive and flips
+  // connected on, which resumes the debounced push of any dirty edits.
+  // If the user cancels, their local edits stay safe and the reconnect
+  // prompt remains.
+  const [reconnecting, setReconnecting] = useState(false);
+  const handleReconnect = async () => {
+    if (reconnecting) return;
+    setReconnecting(true);
+    try {
+      await drive.signIn();
+      try {
+        const remote = await drive.pull();
+        setState((local) => reconcile(local, remote ? hydrate(remote) : null));
+      } catch {
+        // Couldn't read Drive this instant; the resumed push will sync soon.
+      }
+      setSaveState((s) => ({ ...s, health: "ok" }));
+      setConnected(true); // -> SYNCING; the push effect flushes dirty edits
+    } catch {
+      // Cancelled or failed — stay in NEEDS_RECONNECT, edits untouched.
+    } finally {
+      setReconnecting(false);
+    }
   };
 
   if (booting) return <BootingView />;
@@ -750,6 +811,10 @@ export default function WeddingPlanner() {
       {showSetup && <SetupWizard onFinish={finishSetup} onSkipAll={() => { localStorage.setItem(SETUP_KEY, "1"); setShowSetup(false); setShowGuide(true); }} />}
       {showGuide && <GuideModal onClose={closeGuide} />}
 
+      {syncState === NEEDS_RECONNECT && (
+        <ReconnectBanner busy={reconnecting} onReconnect={handleReconnect} />
+      )}
+
       <div style={S.scroll}>
         {tab === "home" && <HomeView state={state} update={update} go={goTab} />}
         {tab === "budget" && <BudgetView state={state} update={update} />}
@@ -761,8 +826,10 @@ export default function WeddingPlanner() {
         {tab === "settings" && <SettingsView state={state} update={update} setState={setStateStamped} go={goTab} connected={connected} onSignOut={handleSignOut} />}
 
         <footer style={S.footer}>
-          {connected ? (
-            <SaveIndicator saveState={saveState} />
+          {intent === "sync" ? (
+            <SaveIndicator
+              saveState={syncState === NEEDS_RECONNECT ? { ...saveState, inFlight: false, health: "error" } : saveState}
+            />
           ) : PERSISTS ? (
             "Saved on this device · sign in to sync across devices"
           ) : (
