@@ -79,3 +79,30 @@ export function appSyncState(intent, hasValidToken) {
   if (intent === "sync") return hasValidToken ? SYNCING : NEEDS_RECONNECT;
   return FRONT_DOOR; // null or anything unrecognised
 }
+
+/* ---------- save-state indicator ---------- */
+
+// The starting flags for a synced session, before the first push
+// lands. `dirty` = has unsaved edits; `inFlight` = a push is
+// running; `health` = "ok" | "error" | "offline"; `neverSynced` =
+// no successful push yet this session. The flags are independent —
+// `dirty` and `offline` can both be true at once.
+export const INITIAL_SAVE_STATE = {
+  dirty: false,
+  inFlight: false,
+  health: "ok",
+  neverSynced: true,
+};
+
+// Pure map from the save-state flags to what the indicator shows.
+// Priority matters: an in-flight push, then offline, then error all
+// outrank a plain "dirty", so a dirty+offline blob reads
+// "Offline — will sync", never "Up to date".
+//   tone -> a semantic colour key the UI maps to a dot colour.
+export function saveStateLabel({ inFlight, dirty, health }) {
+  if (inFlight) return { label: "Saving…", tone: "busy" };
+  if (health === "offline") return { label: "Offline — will sync", tone: "warn" };
+  if (health === "error") return { label: "Sync error — reconnect", tone: "error" };
+  if (dirty) return { label: "Unsaved changes", tone: "dirty" };
+  return { label: "Up to date ✓", tone: "ok" };
+}

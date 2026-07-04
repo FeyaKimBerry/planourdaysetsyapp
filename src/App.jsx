@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import * as drive from "./googleDrive";
-import { getIntent, setIntent, appSyncState, FRONT_DOOR } from "./sync";
+import { getIntent, setIntent, appSyncState, FRONT_DOOR, INITIAL_SAVE_STATE, saveStateLabel } from "./sync";
 
 /* ============================================================
    STORAGE ADAPTER LAYER
@@ -313,14 +313,27 @@ function vendorExpenses(state, vendorId) {
    ROOT — shell + bottom nav
    ============================================================ */
 
-// Footer text per sync state when Google Drive is connected.
-const SYNC_LABEL = {
-  idle: "Synced to your Google Drive",
-  syncing: "Saving to your Google Drive…",
-  synced: "Synced to your Google Drive",
-  offline: "Offline · changes will sync when you're back online",
-  error: "Couldn't sync just now · we'll keep trying",
+// Save indicator — always visible for a synced user, like a game's
+// save icon. Purely maps the save-state flags to a label + a small
+// coloured dot so a glance tells them their work is safe.
+const SAVE_TONE_COLOR = {
+  busy: "#b07a72",   // saving in progress
+  ok: "#5c7a59",     // up to date
+  dirty: "#b07a72",  // unsaved edits
+  warn: "#b8862f",   // offline
+  error: "#b0524a",  // sync error
 };
+
+function SaveIndicator({ saveState }) {
+  const { label, tone } = saveStateLabel(saveState);
+  const color = SAVE_TONE_COLOR[tone] || "#7a655f";
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+      <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flex: "none" }} />
+      <span>{label}</span>
+    </span>
+  );
+}
 
 // Brief splash while we silently restore a previous Google session on load.
 function BootingView() {
@@ -555,8 +568,9 @@ export default function WeddingPlanner() {
   const chooseIntent = (v) => { setIntent(v); setIntentState(v); };
   const [showGuide, setShowGuide] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
-  // idle | syncing | synced | offline | error — drives the footer indicator.
-  const [syncStatus, setSyncStatus] = useState("idle");
+  // Independent save-state flags (dirty / inFlight / health / neverSynced).
+  // saveStateLabel() maps them to what the save indicator shows.
+  const [saveState, setSaveState] = useState(INITIAL_SAVE_STATE);
   // True only while we silently restore a previous Google session on first load.
   const [booting, setBooting] = useState(
     () => drive.isConfigured() && drive.isConnected()
@@ -582,9 +596,10 @@ export default function WeddingPlanner() {
         const remote = await drive.pull();
         if (cancelled) return;
         setState((local) => reconcile(local, remote ? hydrate(remote) : null));
-        setSyncStatus("synced");
+        setSaveState((s) => ({ ...s, health: "ok", neverSynced: false }));
       } catch {
-        setSyncStatus("offline"); // linked, but Drive unreachable right now
+        // Linked, but Drive unreachable right now.
+        setSaveState((s) => ({ ...s, health: "offline" }));
       }
       if (cancelled) return;
       setConnected(true);
@@ -601,15 +616,24 @@ export default function WeddingPlanner() {
     storage.save(state);
 
     if (!didMount.current) { didMount.current = true; return; }
-    if (!connected) return;
+    if (!connected) return; // local-only intent never pushes
 
-    setSyncStatus("syncing");
+    // The edit is now unsaved to Drive. Rapid edits coalesce: each
+    // one resets the debounce timer, so only one push runs (~2.5s).
+    setSaveState((s) => ({ ...s, dirty: true }));
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => {
+      setSaveState((s) => ({ ...s, inFlight: true }));
       drive
         .push(state)
-        .then(() => setSyncStatus("synced"))
-        .catch(() => setSyncStatus("error"));
+        .then(() =>
+          setSaveState((s) => ({ ...s, dirty: false, inFlight: false, health: "ok", neverSynced: false }))
+        )
+        .catch(() =>
+          // Keep dirty set so the edit is retried; distinguish
+          // offline (no network) from a real sync error.
+          setSaveState((s) => ({ ...s, inFlight: false, health: navigator.onLine ? "error" : "offline" }))
+        );
     }, 2500);
   }, [state, connected]);
 
@@ -658,7 +682,7 @@ export default function WeddingPlanner() {
     if (pushTimer.current) clearTimeout(pushTimer.current);
     drive.signOut();
     setConnected(false);
-    setSyncStatus("idle");
+    setSaveState(INITIAL_SAVE_STATE);
     chooseIntent(null);
     localStorage.setItem(SIGNED_OUT_KEY, "1");
   };
@@ -737,11 +761,13 @@ export default function WeddingPlanner() {
         {tab === "settings" && <SettingsView state={state} update={update} setState={setStateStamped} go={goTab} connected={connected} onSignOut={handleSignOut} />}
 
         <footer style={S.footer}>
-          {connected
-            ? SYNC_LABEL[syncStatus] || "Synced to your Google Drive"
-            : PERSISTS
-            ? "Saved on this device · sign in to sync across devices"
-            : "Preview mode · data won't persist here, but saving works in the deployed app"}
+          {connected ? (
+            <SaveIndicator saveState={saveState} />
+          ) : PERSISTS ? (
+            "Saved on this device · sign in to sync across devices"
+          ) : (
+            "Preview mode · data won't persist here, but saving works in the deployed app"
+          )}
         </footer>
       </div>
 
