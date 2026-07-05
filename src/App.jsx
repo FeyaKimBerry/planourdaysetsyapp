@@ -19,7 +19,7 @@ import { getIntent, setIntent, appSyncState, FRONT_DOOR, NEEDS_RECONNECT, INITIA
    load()/save() shape, data lives in the user's own Sheet.
    ============================================================ */
 
-const STORAGE_KEY = "wedding-planner-state-v2";
+export const STORAGE_KEY = "wedding-planner-state-v2";
 
 function localStorageAvailable() {
   try {
