@@ -95,11 +95,13 @@ export const INITIAL_SAVE_STATE = {
 };
 
 // Pure map from the save-state flags to what the indicator shows.
-// Priority matters: an in-flight push, then offline, then error all
-// outrank a plain "dirty", so a dirty+offline blob reads
-// "Offline — will sync", never "Up to date".
+// Priority matters: a failed local save is the most serious (the plan
+// isn't even safe on this device), so it outranks everything; then an
+// in-flight push, offline, and error all outrank a plain "dirty", so a
+// dirty+offline blob reads "Offline — will sync", never "Up to date".
 //   tone -> a semantic colour key the UI maps to a dot colour.
-export function saveStateLabel({ inFlight, dirty, health }) {
+export function saveStateLabel({ inFlight, dirty, health, storageError }) {
+  if (storageError) return { label: "Couldn't save on this device", tone: "error" };
   if (inFlight) return { label: "Saving…", tone: "busy" };
   if (health === "offline") return { label: "Offline — will sync", tone: "warn" };
   if (health === "error") return { label: "Sync error — reconnect", tone: "error" };

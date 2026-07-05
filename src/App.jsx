@@ -41,10 +41,16 @@ const LocalStorageAdapter = {
       return null;
     }
   },
+  // Returns true on success, false if the write was rejected (quota
+  // exceeded, private mode, storage disabled) so the caller can tell the
+  // user instead of silently pretending the save landed.
   save(state) {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {}
+      return true;
+    } catch {
+      return false;
+    }
   },
 };
 
@@ -54,6 +60,7 @@ const MemoryAdapter = {
   },
   save(state) {
     if (typeof window !== "undefined") window.__weddingPlanner = state;
+    return true;
   },
 };
 
@@ -602,6 +609,9 @@ export default function WeddingPlanner() {
   // Independent save-state flags (dirty / inFlight / health / neverSynced).
   // saveStateLabel() maps them to what the save indicator shows.
   const [saveState, setSaveState] = useState(INITIAL_SAVE_STATE);
+  // False when the last localStorage write was rejected (quota / private
+  // mode). Surfaced in the footer so a silent save failure is visible.
+  const [storageOk, setStorageOk] = useState(true);
   // Timestamp of the last successful push/pull (ms). Persisted so the
   // settings panel can show "last synced" across reloads.
   const [lastSync, setLastSync] = useState(
@@ -661,7 +671,7 @@ export default function WeddingPlanner() {
   // `state` already carries its edit-time updatedAt/rev (stamped by the mutators
   // below), so reconciliation compares real edit times, not save times.
   useEffect(() => {
-    storage.save(state);
+    setStorageOk(storage.save(state)); // no-op re-render unless it changed
 
     if (!didMount.current) { didMount.current = true; return; }
     if (!connected) return; // local-only intent never pushes
@@ -881,8 +891,13 @@ export default function WeddingPlanner() {
         <footer style={S.footer}>
           {intent === "sync" ? (
             <SaveIndicator
-              saveState={syncState === NEEDS_RECONNECT ? { ...saveState, inFlight: false, health: "error" } : saveState}
+              saveState={{
+                ...(syncState === NEEDS_RECONNECT ? { ...saveState, inFlight: false, health: "error" } : saveState),
+                storageError: !storageOk,
+              }}
             />
+          ) : !storageOk ? (
+            <SaveIndicator saveState={{ storageError: true }} />
           ) : PERSISTS ? (
             "Saved on this device · sign in to sync across devices"
           ) : (
