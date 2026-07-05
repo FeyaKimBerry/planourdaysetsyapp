@@ -276,6 +276,31 @@ function hydrate(loaded) {
   };
 }
 
+// The list fields the app iterates over; if any exist but aren't arrays,
+// the blob is malformed and would crash a view (or poison local state).
+const STATE_ARRAY_FIELDS = ["categories", "checklist", "vendors", "guests", "venues", "tables", "mealOptions", "groupOptions"];
+
+// Guards the load boundary. A truncated/corrupt blob from Drive (or a
+// bad backup file) must NOT be trusted: parses fine as JSON but has the
+// wrong shape. Returns false for anything we can't safely hydrate.
+export function isValidStateBlob(obj) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+  for (const f of STATE_ARRAY_FIELDS) {
+    if (obj[f] != null && !Array.isArray(obj[f])) return false;
+  }
+  // reconcile compares these numerically; reject non-number values.
+  if (obj.updatedAt != null && typeof obj.updatedAt !== "number") return false;
+  if (obj.rev != null && typeof obj.rev !== "number") return false;
+  return true;
+}
+
+// Validate a pulled blob, then hydrate it. An invalid blob becomes null
+// so reconcile keeps the last-good local copy instead of clobbering it.
+function hydrateRemote(remote) {
+  if (!isValidStateBlob(remote)) return null;
+  return hydrate(remote);
+}
+
 // Last-write-wins: newer updatedAt wins; rev breaks same-timestamp ties.
 // If remote looks empty (no names, guests, vendors) but local has real data, always keep local.
 function hasRealData(s) {
@@ -652,7 +677,7 @@ export default function WeddingPlanner() {
       try {
         const remote = await drive.pull();
         if (cancelled) return;
-        setState((local) => reconcile(local, remote ? hydrate(remote) : null));
+        setState((local) => reconcile(local, hydrateRemote(remote)));
         setSaveState((s) => ({ ...s, health: "ok", neverSynced: false }));
         recordSync();
       } catch {
@@ -715,7 +740,7 @@ export default function WeddingPlanner() {
     await drive.signIn();
     try {
       const remote = await drive.pull();
-      setState((local) => reconcile(local, remote ? hydrate(remote) : null));
+      setState((local) => reconcile(local, hydrateRemote(remote)));
     } catch {
       // Couldn't read Drive this moment; the debounced push will sync soon.
     }
@@ -761,7 +786,7 @@ export default function WeddingPlanner() {
       await drive.signIn();
       try {
         const remote = await drive.pull();
-        setState((local) => reconcile(local, remote ? hydrate(remote) : null));
+        setState((local) => reconcile(local, hydrateRemote(remote)));
         recordSync();
       } catch {
         // Couldn't read Drive this instant; the resumed push will sync soon.
@@ -794,7 +819,7 @@ export default function WeddingPlanner() {
       await drive.signIn();
       try {
         const remote = await drive.pull();
-        setState((local) => reconcile(local, remote ? hydrate(remote) : null));
+        setState((local) => reconcile(local, hydrateRemote(remote)));
         recordSync();
       } catch {
         // Couldn't read Drive this instant; the debounced push will sync soon.
@@ -2372,6 +2397,10 @@ function SettingsView({ state, update, setState, go, connected, onSignOut, sync 
     reader.onload = () => {
       try {
         const parsed = JSON.parse(reader.result);
+        if (!isValidStateBlob(parsed)) {
+          alert("That file couldn't be read as a valid backup.");
+          return;
+        }
         setState(hydrate(parsed));
         go("home");
       } catch {
