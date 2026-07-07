@@ -414,6 +414,34 @@ const GUIDE_KEY = "planourdays-guide-seen";
 const SIGNED_OUT_KEY = "planourdays-signed-out";
 const LAST_SYNC_KEY = "planourdays-last-sync";
 
+/* ------------------------------------------------------------
+   PURCHASE GATE (launch: single shared password from the PDF)
+   The buyer types the password printed in their download PDF.
+   On a match we store a one-time local "activated" record and
+   never ask again on this device (works offline forever after).
+   ------------------------------------------------------------ */
+const ACTIVATED_KEY = "planourdays-activated";
+
+// Forgive spaces / "#" / casing so a buyer can't fail on formatting.
+function normalizeCode(s) {
+  return String(s || "").replace(/[\s#]/g, "").toUpperCase();
+}
+
+// Valid password(s) come from a build-time env var so it can be changed
+// in Netlify without a code edit. Comma-separated allows accepting an old
+// AND a new password during a rotation. Falls back to a default if unset.
+const ACCESS_PASSWORDS = (import.meta.env.VITE_ACCESS_PASSWORD || "POD-6MCT-ZJBJ")
+  .split(",")
+  .map(normalizeCode)
+  .filter(Boolean);
+
+function isActivated() {
+  try { return window.localStorage.getItem(ACTIVATED_KEY) === "1"; } catch { return false; }
+}
+function markActivated() {
+  try { window.localStorage.setItem(ACTIVATED_KEY, "1"); } catch {}
+}
+
 const GUIDE_SLIDES = [
   {
     emoji: "🤍",
@@ -611,6 +639,8 @@ function GuideModal({ onClose }) {
 
 export default function WeddingPlanner() {
   const [state, setState] = useState(() => hydrate(storage.load()));
+  // Purchase gate: true once this device has entered the access password.
+  const [activated, setActivated] = useState(isActivated);
   const [tab, setTab] = useState(() => localStorage.getItem("planourdays-tab") || "home");
   const goTab = (t) => { setTab(t); localStorage.setItem("planourdays-tab", t); };
   // intent = the user's stored choice about how data is saved
@@ -834,6 +864,10 @@ export default function WeddingPlanner() {
       setReconnecting(false);
     }
   };
+
+  // Purchase gate first: an un-activated device sees only the password
+  // screen. Once activated (a one-time local record) it never reappears.
+  if (!activated) return <ActivationGate onActivated={() => setActivated(true)} />;
 
   if (booting) return <BootingView />;
 
@@ -1061,6 +1095,60 @@ function WelcomeView({ configured, onGoogleSignIn, onLocalOnly }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Front-door purchase gate: shown before the welcome flow until this
+// device is activated with the password from the buyer's download PDF.
+function ActivationGate({ onActivated }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+
+  const submit = (e) => {
+    e.preventDefault();
+    const entered = normalizeCode(code);
+    if (!entered) { setError("Please enter your access password."); return; }
+    if (ACCESS_PASSWORDS.includes(entered)) {
+      markActivated();
+      onActivated();
+    } else {
+      setError("That password didn't match. Please check the PDF from your Etsy download and try again.");
+    }
+  };
+
+  return (
+    <div style={S.welcomePage}>
+      <style>{CSS}</style>
+      <div style={S.welcomeInner}>
+        <img src="/logo.png" alt="Planourdays — Wedding App"
+          style={{ width: 200, maxWidth: "72%", height: "auto", display: "block", margin: "0 auto 10px" }} />
+        <h1 style={S.welcomeTitle}>Welcome to Planourdays</h1>
+        <p style={S.welcomeTag}>
+          Enter the access password from your Etsy download to unlock the app on this device.
+        </p>
+
+        <form onSubmit={submit}>
+          <input
+            style={S.activateInput}
+            value={code}
+            onChange={(e) => { setCode(e.target.value); if (error) setError(""); }}
+            placeholder="Access password"
+            aria-label="Access password"
+            autoFocus
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {error && <div style={S.welcomeError}>{error}</div>}
+          <button type="submit" style={S.activateBtn}>Unlock</button>
+        </form>
+
+        <div style={S.welcomeFinePrint}>
+          The password is printed in the PDF you received with your Etsy purchase.
+          You only need to enter it once on this device.
+        </div>
+      </div>
     </div>
   );
 }
@@ -3211,6 +3299,10 @@ const S = {
   welcomeGhost: { width: "100%", background: "transparent", color: "#b07a72", fontSize: 14, padding: "14px", marginTop: 6, cursor: "pointer" },
   welcomeFinePrint: { fontSize: 12, color: "#c4aaa4", lineHeight: 1.5, marginTop: 22, maxWidth: 320, marginLeft: "auto", marginRight: "auto" },
   welcomeError: { fontSize: 13, color: "#c2566b", background: "#fcecef", border: "1px solid #f3d2da", borderRadius: 10, padding: "10px 12px", marginTop: 12, lineHeight: 1.45 },
+
+  /* purchase gate (access password) */
+  activateInput: { width: "100%", boxSizing: "border-box", background: "#fff", color: "#3a2e2c", fontSize: 16, padding: "15px", borderRadius: 14, border: "1px solid #e9d3cd", outline: "none", textAlign: "center", letterSpacing: 1 },
+  activateBtn: { width: "100%", background: "#b07a72", color: "#fff", fontSize: 16, fontWeight: 600, padding: "15px", borderRadius: 14, border: "none", boxShadow: "0 10px 30px -16px rgba(150,100,95,0.6)", cursor: "pointer", marginTop: 12 },
 
   /* warning modal (local-only) */
   modalOverlay: { position: "fixed", inset: 0, background: "rgba(58,46,44,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 22, zIndex: 50 },
