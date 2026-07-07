@@ -5,6 +5,17 @@
 > add **payment-gating** as a *new, self-imposed launch gate* before going live on Etsy.
 > Payment-gating is the **only** thing we will build before launch. Everything under
 > "Deferred" stays on the list but is explicitly **not being done now**.
+>
+> **Decisions locked (2026-07-07):**
+> - **LAUNCH gate = a single shared password** printed in the download PDF, checked by the
+>   app. Chosen for speed/simplicity: no accounts, no backend, no Etsy API, $0. Ship now.
+> - **Post-traction upgrade = per-buyer Etsy order number**, auto-collected by our own code
+>   (**Netlify Functions + Upstash Redis**, **scheduled polling** of Etsy's receipts API —
+>   no Zapier). Build this later, once sales volume makes the shared password's downsides
+>   (shareable, manual rotation) worth solving. Details preserved in sections B–D below.
+> - Migration is safe: activation is a one-time local record, so existing activated devices
+>   are unaffected when we switch the gate later. New activations can accept old+new during
+>   any transition.
 
 ---
 
@@ -31,15 +42,17 @@ one that exists in an allowlist we maintain automatically from Etsy purchase web
 
 ## Decisions still to confirm before building (Phase 0)
 
-- [ ] **KV provider.** Recommendation: **Upstash Redis (free tier)** — REST API (works from
+- [x] **KV provider.** **LOCKED: Upstash Redis (free tier)** — REST API (works from
       any serverless function), a hosted console for manual edits, built-in rate-limiting
-      helper. Alternatives: Cloudflare Workers KV, Deno KV. Pick one and stick with it.
-- [ ] **Function host.** Recommendation: **Netlify Functions** (site already deploys on
-      Netlify, so no new account/infra). Two functions live here.
+      helper. (Confirmed 2026-07-07.)
+- [x] **Function host.** **LOCKED: Netlify Functions** (site already deploys on
+      Netlify, so no new account/infra). Two functions live here. (Confirmed 2026-07-07.)
 - [ ] **Confirm the buyer-facing number.** Verify that the "Order #" a buyer actually sees
-      in their Etsy confirmation/email is the **same value** the webhook delivers
-      (`receipt_id`). This determines what we tell buyers to type and what we store. **This
-      must be confirmed against a real payload before Phase 4.**
+      in their Etsy confirmation/email is the **same value** as `receipt_id` (which is what
+      the receiver fetches and stores — note the webhook payload itself does not carry it;
+      see C). This determines what we tell buyers to type and what we store. **Still needs a
+      real order to confirm** — check a genuine Etsy order confirmation/email against the
+      `receipt_id` the API returns for that same order.
 
 ---
 
@@ -61,15 +74,27 @@ Code and non-code. Nothing here specifies *how* to build it, only what it must d
 ### B. Infrastructure (non-code, account setup)
 - **B1. KV store** (per Phase 0 choice), holding the allowlist of valid order numbers.
 - **B2. Secrets/config** set as environment variables on the function host (never in the
-  app bundle): Etsy signing secret, KV connection URL, KV auth token.
+  app bundle): Etsy signing secret, KV connection URL, KV auth token, **plus stored Etsy
+  OAuth credentials** (see C — the receiver must call Etsy back to fetch the receipt).
 
-### C. Code job — Webhook receiver function
+### C. Code job — Order-sync function
+> **Chosen mechanism: scheduled polling** (a Netlify scheduled function that periodically
+> calls Etsy's "list shop receipts" endpoint, filters to paid, writes each `receipt_id` to
+> KV). This returns `receipt_id` directly — no callback needed — and keeps the OAuth token
+> fresh. The webhook variant below is kept only as an optional future upgrade for instant
+> updates; it is NOT what we're building.
 - **Outcome:** when someone buys, the order number lands in the allowlist automatically.
-- **Input:** an HTTP request from Etsy carrying an `order.paid` event.
+- **Input (webhook variant, deferred):** an HTTP request from Etsy carrying an `order.paid` event.
 - **Behaviour/requirements:**
-  - Verify the request is genuinely from Etsy (signature check with the Etsy secret).
-    Reject anything unsigned/invalid.
-  - Extract the order number, **normalise** it (trim, strip `#`/spaces, consistent case).
+  - Verify the request is genuinely from Etsy. **The signature is HMAC-SHA256** over
+    `webhook-id + "." + webhook-timestamp + "." + raw_body`, keyed by the signing secret
+    (strip the `whsec_` prefix, Base64-decode it), compared to the `webhook-signature`
+    header. Also reject stale timestamps (replay protection). Reject anything invalid.
+  - ⚠️ **The payload does NOT contain the order number.** It carries only `event_type`,
+    `shop_id`, and a `resource_url`. The receiver must make an **authenticated OAuth call
+    back to Etsy** (`resource_url`) to fetch the receipt, and read `receipt_id` from it.
+    This is why B2 now needs stored Etsy OAuth credentials.
+  - Take `receipt_id`, **normalise** it (trim, strip `#`/spaces, consistent case).
   - Write it to the allowlist in KV (idempotent — a repeat of the same order is harmless).
 - **Output:** the normalised order number stored in KV; a success response to Etsy.
 - **Must not:** expose the allowlist, require the app, or store anything about the buyer
