@@ -1561,6 +1561,70 @@ function ExpenseList({ cat, vendors = [], onAdd, onEdit, onDelete }) {
    CHECKLIST VIEW
    ============================================================ */
 
+// Touch/mouse drag-to-reorder for a vertical list. Each row must carry
+// data-drag-id="<id>"; drag starts from a handle spread with handleProps(id).
+// While a row is held, we compare the finger's Y against the midpoints of the
+// neighbours above/below and shift the row one slot at a time — which avoids
+// the flicker you'd get from naive hover-swapping.
+function DragSort({ ids, onReorder, style, children }) {
+  const [dragId, setDragId] = useState(null);
+  const ref = useRef(null);
+  const idsRef = useRef(ids);
+  idsRef.current = ids;
+  const onReorderRef = useRef(onReorder);
+  onReorderRef.current = onReorder;
+  const dragIdRef = useRef(null);
+
+  useEffect(() => {
+    if (dragId == null) return;
+    const move = (e) => {
+      const held = dragIdRef.current;
+      if (held == null || !ref.current) return;
+      e.preventDefault();
+      const rows = Array.from(ref.current.querySelectorAll("[data-drag-id]"))
+        .filter((el) => el.parentElement === ref.current);
+      const idx = rows.findIndex((el) => el.getAttribute("data-drag-id") === held);
+      if (idx === -1) return;
+      const y = e.clientY;
+      const prev = rows[idx - 1];
+      const next = rows[idx + 1];
+      if (prev) {
+        const r = prev.getBoundingClientRect();
+        if (y < r.top + r.height / 2) { onReorderRef.current(idx, idx - 1); return; }
+      }
+      if (next) {
+        const r = next.getBoundingClientRect();
+        if (y > r.top + r.height / 2) { onReorderRef.current(idx, idx + 1); return; }
+      }
+    };
+    const end = () => { dragIdRef.current = null; setDragId(null); };
+    window.addEventListener("pointermove", move, { passive: false });
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, [dragId]);
+
+  const handleProps = (id) => ({
+    onPointerDown: (e) => {
+      if (e.button != null && e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragIdRef.current = String(id);
+      setDragId(String(id));
+    },
+  });
+
+  return (
+    <div ref={ref} style={style}>
+      {children({ handleProps, dragId })}
+    </div>
+  );
+}
+
 function ChecklistView({ state, update }) {
   const [openBucket, setOpenBucket] = useState(state.checklist[0]?.id || null);
   const [expanded, setExpanded] = useState(null);
@@ -1579,20 +1643,20 @@ function ChecklistView({ state, update }) {
   const editBucket = (bid, patch) => update((s) => { const b = s.checklist.find((x) => x.id === bid); if (b) Object.assign(b, patch); return s; });
   const deleteBucket = (bid) => update((s) => { s.checklist = s.checklist.filter((x) => x.id !== bid); return s; });
   const addBucket = () => update((s) => { s.checklist.push({ id: uid(), label: "New Section", tasks: [] }); return s; });
-  const moveBucket = (bid, dir) => update((s) => {
-    const i = s.checklist.findIndex((x) => x.id === bid);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= s.checklist.length) return s;
-    [s.checklist[i], s.checklist[j]] = [s.checklist[j], s.checklist[i]];
+  const reorderBucket = (from, to) => update((s) => {
+    const n = s.checklist.length;
+    if (from === to || from < 0 || to < 0 || from >= n || to >= n) return s;
+    const [m] = s.checklist.splice(from, 1);
+    s.checklist.splice(to, 0, m);
     return s;
   });
-  const moveTask = (bid, tid, dir) => update((s) => {
+  const reorderTask = (bid, from, to) => update((s) => {
     const b = s.checklist.find((x) => x.id === bid);
     if (!b) return s;
-    const i = b.tasks.findIndex((x) => x.id === tid);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= b.tasks.length) return s;
-    [b.tasks[i], b.tasks[j]] = [b.tasks[j], b.tasks[i]];
+    const n = b.tasks.length;
+    if (from === to || from < 0 || to < 0 || from >= n || to >= n) return s;
+    const [m] = b.tasks.splice(from, 1);
+    b.tasks.splice(to, 0, m);
     return s;
   });
 
@@ -1618,26 +1682,21 @@ function ChecklistView({ state, update }) {
       </section>
 
       <section>
-        {state.checklist.map((bucket, bIdx) => {
+        <DragSort ids={state.checklist.map((b) => b.id)} onReorder={reorderBucket}>
+          {({ handleProps, dragId }) => state.checklist.map((bucket) => {
           const bDone = bucket.tasks.filter((t) => t.done).length;
           const isOpen = openBucket === bucket.id;
-          const isFirst = bIdx === 0;
-          const isLast = bIdx === state.checklist.length - 1;
+          const dragging = dragId === String(bucket.id);
           return (
-            <div key={bucket.id} style={S.card}>
+            <div key={bucket.id} data-drag-id={bucket.id} style={{ ...S.card, ...(dragging ? S.dragLifted : null) }}>
               <div style={{ ...S.cardHead, display: "flex", alignItems: "center" }}>
+                <span {...handleProps(bucket.id)} aria-label="Drag to reorder section" style={S.dragHandle}>⠿</span>
                 <div style={{ display: "flex", alignItems: "center", flex: 1, cursor: "pointer" }} onClick={() => { setOpenBucket(isOpen ? null : bucket.id); setConfirmDeleteBucket(null); }}>
                   <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
                   <div style={S.catMain}>
                     <div style={S.bucketLabel}>{bucket.label}</div>
                     <div style={S.bucketCount}>{bDone}/{bucket.tasks.length} done</div>
                   </div>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", marginRight: 2 }}>
-                  <button aria-label="Move section up" disabled={isFirst}
-                    onClick={(e) => { e.stopPropagation(); moveBucket(bucket.id, -1); }} style={S.moveBtn(isFirst)}>▲</button>
-                  <button aria-label="Move section down" disabled={isLast}
-                    onClick={(e) => { e.stopPropagation(); moveBucket(bucket.id, 1); }} style={S.moveBtn(isLast)}>▼</button>
                 </div>
                 {confirmDeleteBucket === bucket.id ? (
                   <div style={{ display: "flex", gap: 4, paddingRight: 10 }}>
@@ -1659,12 +1718,12 @@ function ChecklistView({ state, update }) {
                       value={bucket.label} onChange={(e) => editBucket(bucket.id, { label: e.target.value })} />
                     <button style={{ ...S.deleteCat, flexShrink: 0 }} onClick={() => { deleteBucket(bucket.id); setOpenBucket(null); }}>Delete section</button>
                   </div>
-                  {bucket.tasks.map((t, tIdx) => {
+                  <DragSort ids={bucket.tasks.map((t) => t.id)} onReorder={(from, to) => reorderTask(bucket.id, from, to)}>
+                    {({ handleProps: taskHandle, dragId: taskDragId }) => bucket.tasks.map((t) => {
                     const open = expanded === t.id;
-                    const tFirst = tIdx === 0;
-                    const tLast = tIdx === bucket.tasks.length - 1;
+                    const tDragging = taskDragId === String(t.id);
                     return (
-                      <div key={t.id} style={S.taskItem}>
+                      <div key={t.id} data-drag-id={t.id} style={{ ...S.taskItem, ...(tDragging ? S.dragLifted : null) }}>
                         <div style={S.taskTop}>
                           <button style={{ ...S.check, background: t.done ? "#c98b94" : "#fff", borderColor: t.done ? "#c98b94" : "#d9b8b2" }}
                             onClick={() => toggleTask(bucket.id, t.id)}>
@@ -1672,12 +1731,7 @@ function ChecklistView({ state, update }) {
                           </button>
                           <input style={{ ...S.taskName, textDecoration: t.done ? "line-through" : "none", color: t.done ? "#b9a39e" : "#3a2e2c" }}
                             value={t.name} onChange={(e) => editTask(bucket.id, t.id, { name: e.target.value })} />
-                          <div style={{ display: "flex", flexDirection: "column" }}>
-                            <button aria-label="Move task up" disabled={tFirst}
-                              onClick={() => moveTask(bucket.id, t.id, -1)} style={S.moveBtn(tFirst)}>▲</button>
-                            <button aria-label="Move task down" disabled={tLast}
-                              onClick={() => moveTask(bucket.id, t.id, 1)} style={S.moveBtn(tLast)}>▼</button>
-                          </div>
+                          <span {...taskHandle(t.id)} aria-label="Drag to reorder task" style={S.dragHandle}>⠿</span>
                           <button style={S.taskExpand} onClick={() => setExpanded(open ? null : t.id)}>
                             {open ? "−" : "⋯"}
                           </button>
@@ -1696,6 +1750,7 @@ function ChecklistView({ state, update }) {
                       </div>
                     );
                   })}
+                  </DragSort>
                   <AddTask onAdd={(name) => addTask(bucket.id, name)} />
                   <button style={S.doneBtn} onClick={() => setOpenBucket(null)}>Done</button>
                 </div>
@@ -1703,6 +1758,7 @@ function ChecklistView({ state, update }) {
             </div>
           );
         })}
+        </DragSort>
         <button style={S.addCat} onClick={addBucket}>+ Add section</button>
       </section>
     </>
@@ -3450,7 +3506,8 @@ const S = {
 
   /* trash delete pattern */
   trashBtn: { background: "none", border: "none", padding: "8px 10px", cursor: "pointer", color: "#c98b94", flexShrink: 0, lineHeight: 1, display: "flex", alignItems: "center" },
-  moveBtn: (disabled) => ({ background: "none", border: "none", padding: "1px 6px", cursor: disabled ? "default" : "pointer", color: disabled ? "#eaded9" : "#c98b94", fontSize: 10, lineHeight: 1.1, flexShrink: 0 }),
+  dragHandle: { flexShrink: 0, padding: "6px 8px", color: "#d3b8b2", fontSize: 16, lineHeight: 1, cursor: "grab", touchAction: "none", userSelect: "none", alignSelf: "center" },
+  dragLifted: { boxShadow: "0 10px 26px -8px rgba(120,70,60,0.45)", transform: "scale(1.015)", position: "relative", zIndex: 20, background: "#fff" },
   trashConfirm: { background: "#c2566b", color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" },
   trashCancel: { background: "#f4e8e4", color: "#b58e87", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" },
 
