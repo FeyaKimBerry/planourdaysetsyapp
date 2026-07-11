@@ -322,9 +322,13 @@ function reconcile(local, remote) {
 const RSVP_STATUSES = ["Invited", "Yes", "No", "Maybe"];
 
 // Total people coming = each "Yes" guest's party size (min 1).
+// A guest is on the real (invited) list unless explicitly staged as "planning".
+// Guests saved before the planning feature have no stage, so they count as invited.
+const isInvited = (g) => (g.stage || "invited") === "invited";
+
 function headcount(guests) {
   return guests
-    .filter((g) => g.rsvp === "Yes")
+    .filter((g) => isInvited(g) && g.rsvp === "Yes")
     .reduce((s, g) => s + Math.max(1, Number(g.party) || 1), 0);
 }
 
@@ -2072,8 +2076,12 @@ function PaymentAdd({ onAdd }) {
    GUESTS VIEW
    ============================================================ */
 
+const PLAN_LABEL = { want: "Want to invite", notsure: "Not sure" };
+
 function GuestsView({ state, update }) {
   const [openGuest, setOpenGuest] = useState(null);
+  // Which stage is being viewed: "invited" (the real list) or "planning" (brainstorm).
+  const [view, setView] = useState("invited");
   const [filter, setFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [managing, setManaging] = useState(false);
@@ -2103,16 +2111,37 @@ function GuestsView({ state, update }) {
       return s;
     });
 
-  const guests = state.guests;
-  const counts = {
-    invited: guests.length,
-    yes: guests.filter((g) => g.rsvp === "Yes").length,
-    no: guests.filter((g) => g.rsvp === "No").length,
-    waiting: guests.filter((g) => g.rsvp === "Invited" || g.rsvp === "Maybe").length,
-  };
-  const heads = headcount(guests);
+  const allGuests = state.guests;
+  const invitedGuests = allGuests.filter(isInvited);
+  const planningGuests = allGuests.filter((g) => !isInvited(g));
+  // Group picker offers every group already in use (across both stages), not
+  // just the tracked options — so moving a guest reuses the existing group
+  // instead of spawning a near-duplicate.
+  const groupChoices = [...new Set([
+    ...(state.groupOptions || []),
+    ...allGuests.map((g) => (g.group || "").trim()).filter(Boolean),
+  ])];
+  // The list shown depends on the current stage tab.
+  const guests = view === "invited" ? invitedGuests : planningGuests;
 
-  const byStatus = filter === "All" ? guests : guests.filter((g) => g.rsvp === filter);
+  const counts = {
+    invited: invitedGuests.length,
+    yes: invitedGuests.filter((g) => g.rsvp === "Yes").length,
+    no: invitedGuests.filter((g) => g.rsvp === "No").length,
+    waiting: invitedGuests.filter((g) => g.rsvp === "Invited" || g.rsvp === "Maybe").length,
+  };
+  const heads = headcount(allGuests);
+  const planCounts = {
+    total: planningGuests.length,
+    want: planningGuests.filter((g) => (g.planStatus || "want") === "want").length,
+    notsure: planningGuests.filter((g) => (g.planStatus || "want") === "notsure").length,
+  };
+
+  const byStatus = filter === "All"
+    ? guests
+    : view === "invited"
+      ? guests.filter((g) => g.rsvp === filter)
+      : guests.filter((g) => PLAN_LABEL[g.planStatus || "want"] === filter);
   const q = query.trim().toLowerCase();
   const shown = !q
     ? byStatus
@@ -2124,7 +2153,8 @@ function GuestsView({ state, update }) {
     const group = grp || "";
     const id = uid();
     update((s) => {
-      s.guests.push({ id, name: "", rsvp: "Invited", party: 1, meal: "", group, notes: "" });
+      // New guests join whichever stage is currently being viewed.
+      s.guests.push({ id, name: "", rsvp: "Invited", party: 1, meal: "", group, notes: "", stage: view, planStatus: "want" });
       return s;
     });
     // Make sure the target group is expanded and jump straight into the
@@ -2139,6 +2169,12 @@ function GuestsView({ state, update }) {
     update((s) => { const g = s.guests.find((x) => x.id === id); if (g) Object.assign(g, patch); return s; });
   const deleteGuest = (id) =>
     update((s) => { s.guests = s.guests.filter((x) => x.id !== id); return s; });
+  // Move a guest from the planning list onto the real (invited) list.
+  const inviteGuest = (id) =>
+    update((s) => { const g = s.guests.find((x) => x.id === id); if (g) { g.stage = "invited"; if (!g.rsvp) g.rsvp = "Invited"; } return s; });
+  // Move a guest back to the planning list.
+  const moveToPlanning = (id) =>
+    update((s) => { const g = s.guests.find((x) => x.id === id); if (g) { g.stage = "planning"; if (!g.planStatus) g.planStatus = "want"; } return s; });
 
   const rsvpColor = (st) =>
     st === "Yes" ? { bg: "#e4eede", fg: "#5c7a59" }
@@ -2153,17 +2189,44 @@ function GuestsView({ state, update }) {
         <h1 style={S.title}>Guests</h1>
       </header>
 
+      {/* Stage toggle: brainstorm in Planning, then move people to Invited */}
+      <div style={S.stageToggle}>
+        <button onClick={() => { setView("planning"); setFilter("All"); setOpenGuest(null); }}
+          style={{ ...S.stageTab, ...(view === "planning" ? S.stageTabActive : null) }}>
+          Planning{planCounts.total > 0 ? ` (${planCounts.total})` : ""}
+        </button>
+        <button onClick={() => { setView("invited"); setFilter("All"); setOpenGuest(null); }}
+          style={{ ...S.stageTab, ...(view === "invited" ? S.stageTabActive : null) }}>
+          Invited{counts.invited > 0 ? ` (${counts.invited})` : ""}
+        </button>
+      </div>
+
       <section style={S.dashboard}>
-        <div style={S.guestStats}>
-          <GuestStat n={counts.yes} label="Coming" accent="#5c7a59" />
-          <GuestStat n={counts.waiting} label="Awaiting" accent="#a8862f" />
-          <GuestStat n={counts.no} label="Declined" accent="#c2566b" />
-          <GuestStat n={counts.invited} label="Invited" accent="#8a6d68" />
-        </div>
-        <div style={S.headcountBox}>
-          <span style={S.headcountNum}>{heads}</span>
-          <span style={S.headcountLabel}>total guests coming (incl. +1s) — your caterer headcount</span>
-        </div>
+        {view === "invited" ? (
+          <>
+            <div style={S.guestStats}>
+              <GuestStat n={counts.yes} label="Coming" accent="#5c7a59" />
+              <GuestStat n={counts.waiting} label="Awaiting" accent="#a8862f" />
+              <GuestStat n={counts.no} label="Declined" accent="#c2566b" />
+              <GuestStat n={counts.invited} label="Invited" accent="#8a6d68" />
+            </div>
+            <div style={S.headcountBox}>
+              <span style={S.headcountNum}>{heads}</span>
+              <span style={S.headcountLabel}>total guests coming (incl. +1s) — your caterer headcount</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={S.guestStats}>
+              <GuestStat n={planCounts.total} label="On your list" accent="#8a6d68" />
+              <GuestStat n={planCounts.want} label="Want to invite" accent="#5c7a59" />
+              <GuestStat n={planCounts.notsure} label="Not sure" accent="#a8862f" />
+            </div>
+            <div style={S.headcountBox}>
+              <span style={S.headcountLabel}>Your planning list — brainstorm freely. These aren't invited yet and don't count toward your headcount.</span>
+            </div>
+          </>
+        )}
       </section>
 
       {/* search */}
@@ -2176,7 +2239,7 @@ function GuestsView({ state, update }) {
 
       {/* filter pills */}
       <div style={S.filterRow}>
-        {["All", "Invited", "Yes", "Maybe", "No"].map((f) => (
+        {(view === "invited" ? ["All", "Invited", "Yes", "Maybe", "No"] : ["All", "Want to invite", "Not sure"]).map((f) => (
           <button key={f} onClick={() => setFilter(f)}
             style={{ ...S.filterPill, background: filter === f ? "#c98b94" : "#fff", color: filter === f ? "#fff" : "#b58e87", borderColor: filter === f ? "#c98b94" : "#f0e2dd" }}>
             {f}
@@ -2200,7 +2263,11 @@ function GuestsView({ state, update }) {
 
       <section>
         {guests.length === 0 && (
-          <div style={S.emptyNote}>No guests yet. Tap "Add guest" to start your list.</div>
+          <div style={S.emptyNote}>
+            {view === "planning"
+              ? "Nothing here yet. Brainstorm everyone you might invite — you can move them to your guest list later."
+              : "No invited guests yet. Add people here, or move them over from your Planning list."}
+          </div>
         )}
         {guests.length > 0 && shown.length === 0 && (
           <div style={S.emptyNote}>No guests match your search or filter.</div>
@@ -2229,7 +2296,7 @@ function GuestsView({ state, update }) {
                     <span style={{ fontFamily: "'Fraunces', serif", fontSize: 15, fontWeight: 600, color: "#6b4a45" }}>{label}</span>
                   </div>
                   <span style={{ fontSize: 12, color: "#c4aaa4" }}>
-                    {yesCount > 0 ? `${yesCount} coming · ` : ""}{members.length} guest{members.length !== 1 ? "s" : ""}
+                    {view === "invited" && yesCount > 0 ? `${yesCount} coming · ` : ""}{members.length} guest{members.length !== 1 ? "s" : ""}
                   </span>
                 </div>
 
@@ -2256,7 +2323,13 @@ function GuestsView({ state, update }) {
                                   </div>
                                 )}
                               </div>
-                              <span style={{ ...S.diffPill, background: c.bg, color: c.fg, fontSize: 11, flexShrink: 0 }}>{g.rsvp}</span>
+                              {view === "invited" ? (
+                                <span style={{ ...S.diffPill, background: c.bg, color: c.fg, fontSize: 11, flexShrink: 0 }}>{g.rsvp}</span>
+                              ) : (
+                                <span style={{ ...S.diffPill, ...((g.planStatus || "want") === "notsure" ? { background: "#faf0d8", color: "#a8862f" } : { background: "#e4eede", color: "#5c7a59" }), fontSize: 11, flexShrink: 0 }}>
+                                  {PLAN_LABEL[g.planStatus || "want"]}
+                                </span>
+                              )}
                               <span style={{ color: "#d9c8c3", fontSize: 16, flexShrink: 0 }}>›</span>
                             </div>
                             {confirmDelete === g.id ? (
@@ -2281,11 +2354,20 @@ function GuestsView({ state, update }) {
                                   <input style={S.fieldInput} placeholder="Guest name" value={g.name}
                                     onChange={(e) => editGuest(g.id, { name: e.target.value })} />
                                 </Field>
-                                <Field label="RSVP">
-                                  <select style={S.fieldSelect} value={g.rsvp} onChange={(e) => editGuest(g.id, { rsvp: e.target.value })}>
-                                    {RSVP_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
-                                  </select>
-                                </Field>
+                                {view === "invited" ? (
+                                  <Field label="RSVP">
+                                    <select style={S.fieldSelect} value={g.rsvp} onChange={(e) => editGuest(g.id, { rsvp: e.target.value })}>
+                                      {RSVP_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
+                                    </select>
+                                  </Field>
+                                ) : (
+                                  <Field label="Plan status">
+                                    <select style={S.fieldSelect} value={g.planStatus || "want"} onChange={(e) => editGuest(g.id, { planStatus: e.target.value })}>
+                                      <option value="want">Want to invite</option>
+                                      <option value="notsure">Not sure</option>
+                                    </select>
+                                  </Field>
+                                )}
                                 <Field label="Party size (incl. guest)">
                                   <input type="number" inputMode="numeric" min="1" style={S.fieldInput}
                                     value={g.party} onChange={(e) => editGuest(g.id, { party: Math.max(1, Number(e.target.value) || 1) })} />
@@ -2303,7 +2385,7 @@ function GuestsView({ state, update }) {
                                       else editGuest(g.id, { group: e.target.value });
                                     }}>
                                     <option value="">—</option>
-                                    {state.groupOptions.map((gr) => <option key={gr} value={gr}>{gr}</option>)}
+                                    {groupChoices.map((gr) => <option key={gr} value={gr}>{gr}</option>)}
                                     <option value="__add__">+ New group…</option>
                                   </select>
                                   {newGroupFor === g.id && (
@@ -2338,7 +2420,16 @@ function GuestsView({ state, update }) {
                               </div>
                               <input style={S.taskNote} placeholder="Notes (dietary needs, address)…" value={g.notes}
                                 onChange={(e) => editGuest(g.id, { notes: e.target.value })} />
-                              <button style={{ ...S.deleteCat, marginTop: 14, display: "block" }} onClick={() => deleteGuest(g.id)}>
+                              {view === "planning" ? (
+                                <button style={S.inviteBtn} onClick={() => { inviteGuest(g.id); setOpenGuest(null); }}>
+                                  Invite → move to guest list
+                                </button>
+                              ) : (
+                                <button style={S.moveBackBtn} onClick={() => { moveToPlanning(g.id); setOpenGuest(null); }}>
+                                  ↩ Move back to planning
+                                </button>
+                              )}
+                              <button style={{ ...S.deleteCat, marginTop: 12, display: "block" }} onClick={() => deleteGuest(g.id)}>
                                 Remove guest
                               </button>
                               <button style={S.doneBtn} onClick={() => setOpenGuest(null)}>Done</button>
@@ -2475,6 +2566,7 @@ function buildPlannerHtml(state) {
   // ---- Guests ----
   const heads = headcount(state.guests);
   const guestRows = (state.guests || [])
+    .filter(isInvited)
     .map(
       (g) =>
         `<tr><td>${esc(g.name) || "Guest"}${Number(g.party) > 1 ? ` <span class="muted">+${g.party - 1}</span>` : ""}</td><td>${esc(g.rsvp)}</td><td>${esc(g.group) || "—"}</td><td>${esc(g.meal) || "—"}</td></tr>`
@@ -2796,7 +2888,8 @@ function SeatingView({ state, update }) {
   const [addingTable, setAddingTable] = useState(false);
 
   const tables = state.tables || [];
-  const guests = state.guests || [];
+  // Only invited guests are seated; planning-list guests aren't real yet.
+  const guests = (state.guests || []).filter(isInvited);
 
   // Which table each guest is at (or null).
   const seatOf = {};
@@ -3545,6 +3638,11 @@ const S = {
   trashBtn: { background: "none", border: "none", padding: "8px 10px", cursor: "pointer", color: "#c98b94", flexShrink: 0, lineHeight: 1, display: "flex", alignItems: "center" },
   dragHandle: { flexShrink: 0, padding: "6px 8px", color: "#d3b8b2", fontSize: 16, lineHeight: 1, cursor: "grab", touchAction: "none", userSelect: "none", alignSelf: "center" },
   dragLifted: { boxShadow: "0 10px 26px -8px rgba(120,70,60,0.45)", transform: "scale(1.015)", position: "relative", zIndex: 20, background: "#fff" },
+  stageToggle: { display: "flex", gap: 6, marginBottom: 14, background: "#f6e9e4", borderRadius: 14, padding: 4 },
+  stageTab: { flex: 1, textAlign: "center", padding: "10px 12px", borderRadius: 10, border: "none", background: "transparent", color: "#b58e87", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "'Fraunces', serif" },
+  stageTabActive: { background: "#fff", color: "#6b4a45", boxShadow: "0 2px 8px -4px rgba(120,70,60,0.4)" },
+  inviteBtn: { marginTop: 14, width: "100%", background: "#c98b94", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "'Fraunces', serif" },
+  moveBackBtn: { marginTop: 14, width: "100%", background: "transparent", color: "#b58e87", border: "1px solid #f0e2dd", borderRadius: 12, padding: "12px", fontSize: 14, cursor: "pointer" },
   trashConfirm: { background: "#c2566b", color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" },
   trashCancel: { background: "#f4e8e4", color: "#b58e87", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" },
 
