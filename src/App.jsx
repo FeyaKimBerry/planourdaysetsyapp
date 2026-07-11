@@ -551,7 +551,7 @@ function SetupWizard({ onFinish, onSkipAll }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 22 }}>
             <div style={{ display: "flex", alignItems: "center", background: "#fbf6f3", borderRadius: 12, padding: "12px 16px", border: "1px solid #f0e2dd" }}>
               <span style={{ color: "#b58e87", fontSize: 20, marginRight: 6 }}>$</span>
-              <input type="number" inputMode="numeric" style={{ ...S.setupInput, background: "transparent", border: "none", padding: 0, fontSize: 22, fontWeight: 600 }}
+              <input type="number" inputMode="numeric" className="big-number-md" style={{ ...S.setupInput, background: "transparent", border: "none", padding: 0, fontSize: 22, fontWeight: 600 }}
                 placeholder="30000" value={draft.total} onChange={(e) => set({ total: e.target.value })} autoFocus />
             </div>
             <select style={{ ...S.setupInput, color: "#3a2e2c" }} value={draft.currency}
@@ -1378,7 +1378,7 @@ function BudgetView({ state, update }) {
           <label style={S.totalLabel}>Total Budget</label>
           <div style={S.totalInputWrap}>
             <span style={S.dollar}>$</span>
-            <input type="number" inputMode="numeric" value={state.total === 0 ? "" : state.total}
+            <input type="number" inputMode="numeric" className="big-number-lg" value={state.total === 0 ? "" : state.total}
               placeholder="0" onChange={(e) => setTotal(e.target.value)} style={S.totalInput} />
           </div>
         </div>

@@ -1,3 +1,10 @@
 * { margin: 0; padding: 0; }
 html, body, #root { min-height: 100%; }
 body { background: #fbf6f3; -webkit-font-smoothing: antialiased; }
+
+/* Form fields must be >=16px or iOS/iPadOS Safari auto-zooms on focus
+   and never zooms back out, forcing users to re-adjust the screen. */
+input, textarea, select { font-size: 16px !important; }
+/* Keep the large budget-total displays at their designed size. */
+input.big-number-lg { font-size: 26px !important; }
+input.big-number-md { font-size: 22px !important; }
