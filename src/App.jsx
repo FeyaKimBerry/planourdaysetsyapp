@@ -2041,11 +2041,19 @@ function GuestsView({ state, update }) {
         [g.name, g.group, g.notes].some((f) => (f || "").toLowerCase().includes(q))
       );
 
-  const addGuest = () =>
+  const addGuest = () => {
+    const id = uid();
     update((s) => {
-      s.guests.push({ id: uid(), name: "", rsvp: "Invited", party: 1, meal: "", group: "", notes: "" });
+      s.guests.push({ id, name: "", rsvp: "Invited", party: 1, meal: "", group: "", notes: "" });
       return s;
     });
+    // A new guest starts ungrouped ("No group"); make sure that group is
+    // expanded and jump straight into the guest's info form.
+    setCollapsedGroups((prev) => ({ ...prev, "": false }));
+    setFilter("All");
+    setQuery("");
+    setOpenGuest(id);
+  };
   const editGuest = (id, patch) =>
     update((s) => { const g = s.guests.find((x) => x.id === id); if (g) Object.assign(g, patch); return s; });
   const deleteGuest = (id) =>
