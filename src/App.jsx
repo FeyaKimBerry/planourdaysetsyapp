@@ -1362,6 +1362,13 @@ function BudgetView({ state, update }) {
   const addCategory = () => update((s) => { s.categories.push({ id: uid(), name: "New Category", allocated: 0, expenses: [] }); return s; });
   const editCategory = (id, patch) => update((s) => { const c = s.categories.find((x) => x.id === id); if (c) Object.assign(c, patch); return s; });
   const deleteCategory = (id) => update((s) => { s.categories = s.categories.filter((x) => x.id !== id); return s; });
+  const reorderCategory = (from, to) => update((s) => {
+    const n = s.categories.length;
+    if (from === to || from < 0 || to < 0 || from >= n || to >= n) return s;
+    const [m] = s.categories.splice(from, 1);
+    s.categories.splice(to, 0, m);
+    return s;
+  });
   const addExpense = (catId, exp) => update((s) => { const c = s.categories.find((x) => x.id === catId); if (c) c.expenses.push({ id: uid(), ...exp }); return s; });
   const editExpense = (catId, expId, patch) => update((s) => { const c = s.categories.find((x) => x.id === catId); const e = c?.expenses.find((x) => x.id === expId); if (e) Object.assign(e, patch); return s; });
   const deleteExpense = (catId, expId) => update((s) => { const c = s.categories.find((x) => x.id === catId); if (c) c.expenses = c.expenses.filter((x) => x.id !== expId); return s; });
@@ -1421,13 +1428,16 @@ function BudgetView({ state, update }) {
       </section>
 
       <section>
-        {state.categories.map((cat) => {
+        <DragSort ids={state.categories.map((c) => c.id)} onReorder={reorderCategory}>
+          {({ handleProps, dragId }) => state.categories.map((cat) => {
           const spent = catSpent(cat);
           const diff = cat.allocated - spent;
           const isOpen = openCat === cat.id;
+          const dragging = dragId === String(cat.id);
           return (
-            <div key={cat.id} style={S.card}>
+            <div key={cat.id} data-drag-id={cat.id} style={{ ...S.card, ...(dragging ? S.dragLifted : null) }}>
               <div style={{ ...S.cardHead, display: "flex", alignItems: "center" }}>
+                <span {...handleProps(cat.id)} aria-label="Drag to reorder category" style={S.dragHandle}>⠿</span>
                 <div style={{ display: "flex", alignItems: "center", flex: 1, cursor: "pointer" }} onClick={() => { setOpenCat(isOpen ? null : cat.id); setConfirmDeleteCat(null); }}>
                 <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
                 <div style={S.catMain}>
@@ -1480,6 +1490,7 @@ function BudgetView({ state, update }) {
             </div>
           );
         })}
+        </DragSort>
         <button style={S.addCat} onClick={addCategory}>+ Add category</button>
       </section>
     </>
@@ -1822,6 +1833,14 @@ function VendorsView({ state, update }) {
       return s;
     });
 
+  const reorderVendor = (from, to) => update((s) => {
+    const n = s.vendors.length;
+    if (from === to || from < 0 || to < 0 || from >= n || to >= n) return s;
+    const [m] = s.vendors.splice(from, 1);
+    s.vendors.splice(to, 0, m);
+    return s;
+  });
+
   // Add a payment = create an expense in the vendor's linked category, tagged with vendorId.
   const addPayment = (vendor, pay) =>
     update((s) => {
@@ -1868,19 +1887,22 @@ function VendorsView({ state, update }) {
           <div style={S.emptyNote}>No vendors match your search.</div>
         )}
 
-        {shownVendors.map((vendor) => {
+        <DragSort ids={shownVendors.map((v) => v.id)} onReorder={reorderVendor}>
+          {({ handleProps, dragId }) => shownVendors.map((vendor) => {
           const cat = state.categories.find((c) => c.id === vendor.categoryId);
           const payments = vendorExpenses(state, vendor.id);
           const paid = payments.reduce((s, e) => s + (Number(e.amount) || 0), 0);
           const isOpen = openVendor === vendor.id;
+          const dragging = dragId === String(vendor.id);
           const statusColor =
             vendor.status === "Booked" ? { bg: "#e4eede", fg: "#5c7a59" }
             : vendor.status === "Contacted" ? { bg: "#faf0d8", fg: "#a8862f" }
             : { bg: "#f4e8e4", fg: "#b07a72" };
 
           return (
-            <div key={vendor.id} style={S.card}>
+            <div key={vendor.id} data-drag-id={vendor.id} style={{ ...S.card, ...(dragging ? S.dragLifted : null) }}>
               <div style={{ ...S.cardHead, display: "flex", alignItems: "center" }}>
+                {!q && <span {...handleProps(vendor.id)} aria-label="Drag to reorder vendor" style={S.dragHandle}>⠿</span>}
                 <div style={{ display: "flex", alignItems: "center", flex: 1, cursor: "pointer" }} onClick={() => { setOpenVendor(isOpen ? null : vendor.id); setConfirmDeleteVendor(null); }}>
                   <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
                   <div style={S.catMain}>
@@ -1995,6 +2017,7 @@ function VendorsView({ state, update }) {
             </div>
           );
         })}
+        </DragSort>
 
         <button style={S.addCat} onClick={addVendor}>+ Add vendor</button>
       </section>
