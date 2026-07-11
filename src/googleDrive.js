@@ -70,11 +70,13 @@ function dropToken() {
 }
 
 function saveToken(token, expiresIn) {
-  // Refresh a minute early so a token never expires mid-request.
+  // Treat the token as stale a few minutes before it truly expires, so a
+  // routine hourly rotation is refreshed *before* a request rather than
+  // failing mid-flight. The wide margin also absorbs clock skew.
   setConnection({
     connected: true,
     token,
-    expiry: Date.now() + (Number(expiresIn || 3600) - 60) * 1000,
+    expiry: Date.now() + (Number(expiresIn || 3600) - 300) * 1000,
   });
 }
 
@@ -205,16 +207,38 @@ async function getToken() {
   throw new Error("not_authenticated");
 }
 
+// Run a Drive operation with a valid token. If the token is rejected
+// mid-request (a 401, surfaced by the op as "unauthorized") — e.g. it expired
+// a touch early or there's clock skew — drop it, silently refresh once, and
+// retry the whole operation. Only a failed retry (or a genuinely dead Google
+// session) surfaces as "not_authenticated". So the reconnect banner fires on a
+// real disconnection, not on a routine token rotation we could recover from.
+async function withDrive(op) {
+  const token = await getToken();
+  try {
+    return await op(token);
+  } catch (e) {
+    if (!e || e.message !== "unauthorized") throw e;
+    dropToken();
+    const fresh = await silentRefresh();
+    if (!fresh) throw new Error("not_authenticated");
+    try {
+      return await op(fresh);
+    } catch (e2) {
+      if (e2 && e2.message === "unauthorized") throw new Error("not_authenticated");
+      throw e2;
+    }
+  }
+}
+
 /* ---------- Drive REST ---------- */
 
 async function findFileId(token) {
   const q = encodeURIComponent(`name='${FILE_NAME}'`);
   const url = `${DRIVE_FILES}?spaces=appDataFolder&q=${q}&fields=files(id)`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (res.status === 401) {
-    dropToken();
-    throw new Error("not_authenticated");
-  }
+  // Let withDrive() decide whether a 401 is recoverable (refresh + retry).
+  if (res.status === 401) throw new Error("unauthorized");
   if (!res.ok) throw new Error("drive_list_failed");
   const data = await res.json();
   return data.files && data.files[0] ? data.files[0].id : null;
@@ -222,54 +246,59 @@ async function findFileId(token) {
 
 // Read the saved plan from Drive. null = no file there yet.
 export async function pull() {
-  const token = await getToken();
-  const id = await findFileId(token);
-  if (!id) return null;
-  const res = await fetch(`${DRIVE_FILES}/${id}?alt=media`, {
-    headers: { Authorization: `Bearer ${token}` },
+  return withDrive(async (token) => {
+    const id = await findFileId(token);
+    if (!id) return null;
+    const res = await fetch(`${DRIVE_FILES}/${id}?alt=media`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) throw new Error("unauthorized");
+    if (!res.ok) throw new Error("drive_download_failed");
+    return await res.json();
   });
-  if (!res.ok) throw new Error("drive_download_failed");
-  return await res.json();
 }
 
 // Write the plan to Drive (create on first push, update thereafter).
 export async function push(state) {
-  const token = await getToken();
-  const id = await findFileId(token);
   const body = JSON.stringify(state);
+  return withDrive(async (token) => {
+    const id = await findFileId(token);
 
-  if (id) {
-    const res = await fetch(`${DRIVE_UPLOAD}/${id}?uploadType=media`, {
-      method: "PATCH",
+    if (id) {
+      const res = await fetch(`${DRIVE_UPLOAD}/${id}?uploadType=media`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body,
+      });
+      if (res.status === 401) throw new Error("unauthorized");
+      if (!res.ok) throw new Error("drive_update_failed");
+      return;
+    }
+
+    // Create: multipart so we can set parents:['appDataFolder'] alongside content.
+    const boundary = "planourdays_" + Date.now();
+    const metadata = { name: FILE_NAME, parents: ["appDataFolder"] };
+    const multipart =
+      `--${boundary}\r\n` +
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+      `${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\n` +
+      "Content-Type: application/json\r\n\r\n" +
+      `${body}\r\n` +
+      `--${boundary}--`;
+
+    const res = await fetch(`${DRIVE_UPLOAD}?uploadType=multipart`, {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+        "Content-Type": `multipart/related; boundary=${boundary}`,
       },
-      body,
+      body: multipart,
     });
-    if (!res.ok) throw new Error("drive_update_failed");
-    return;
-  }
-
-  // Create: multipart so we can set parents:['appDataFolder'] alongside content.
-  const boundary = "planourdays_" + Date.now();
-  const metadata = { name: FILE_NAME, parents: ["appDataFolder"] };
-  const multipart =
-    `--${boundary}\r\n` +
-    "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
-    `${JSON.stringify(metadata)}\r\n` +
-    `--${boundary}\r\n` +
-    "Content-Type: application/json\r\n\r\n" +
-    `${body}\r\n` +
-    `--${boundary}--`;
-
-  const res = await fetch(`${DRIVE_UPLOAD}?uploadType=multipart`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": `multipart/related; boundary=${boundary}`,
-    },
-    body: multipart,
+    if (res.status === 401) throw new Error("unauthorized");
+    if (!res.ok) throw new Error("drive_create_failed");
   });
-  if (!res.ok) throw new Error("drive_create_failed");
 }
