@@ -647,6 +647,20 @@ export default function WeddingPlanner() {
   const [activated, setActivated] = useState(isActivated);
   const [tab, setTab] = useState(() => localStorage.getItem("planourdays-tab") || "home");
   const goTab = (t) => { setTab(t); localStorage.setItem("planourdays-tab", t); };
+  // From the footer save-status: open Settings and scroll to the Sync panel,
+  // so tapping "Up to date" / "reconnect" lands on the sync details + controls.
+  const goToSyncSettings = () => {
+    goTab("settings");
+    // Wait for the Settings view to mount, then scroll the Sync panel into
+    // view. Poll a few times since the exact commit timing varies.
+    let tries = 0;
+    const tryScroll = () => {
+      const el = document.getElementById("sync-panel");
+      if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+      if (tries++ < 12) setTimeout(tryScroll, 40);
+    };
+    setTimeout(tryScroll, 40);
+  };
   // intent = the user's stored choice about how data is saved
   // ("sync" | "local" | null). connected = Google Drive holds a live
   // token this session. Together they derive appSyncState() below.
@@ -952,20 +966,31 @@ export default function WeddingPlanner() {
           sync={{ intent, syncState, saveState, lastSync, busy: reconnecting, onSwitchToLocal: switchToLocal, onSwitchToSync: switchToSync, onReconnect: handleReconnect }} />}
 
         <footer style={S.footer}>
-          {intent === "sync" ? (
-            <SaveIndicator
-              saveState={{
-                ...(syncState === NEEDS_RECONNECT ? { ...saveState, inFlight: false, health: "error" } : saveState),
-                storageError: !storageOk,
-              }}
-            />
-          ) : !storageOk ? (
-            <SaveIndicator saveState={{ storageError: true }} />
-          ) : PERSISTS ? (
-            "Saved on this device · sign in to sync across devices"
-          ) : (
-            "Preview mode · data won't persist here, but saving works in the deployed app"
-          )}
+          {(() => {
+            const content =
+              intent === "sync" ? (
+                <SaveIndicator
+                  saveState={{
+                    ...(syncState === NEEDS_RECONNECT ? { ...saveState, inFlight: false, health: "error" } : saveState),
+                    storageError: !storageOk,
+                  }}
+                />
+              ) : !storageOk ? (
+                <SaveIndicator saveState={{ storageError: true }} />
+              ) : PERSISTS ? (
+                "Saved on this device · sign in to sync across devices"
+              ) : null;
+            // Preview mode: nothing actionable, leave as plain text.
+            if (content === null) return "Preview mode · data won't persist here, but saving works in the deployed app";
+            // Already in Settings: no point navigating there again.
+            if (tab === "settings") return content;
+            return (
+              <button style={S.footerBtn} onClick={goToSyncSettings} aria-label="View sync details in settings">
+                {content}
+                <span style={S.footerChevron}>›</span>
+              </button>
+            );
+          })()}
         </footer>
       </div>
 
@@ -2797,7 +2822,7 @@ function SettingsView({ state, update, setState, go, connected, onSignOut, sync 
       </section>
 
       {/* Sync */}
-      {sync && <SyncPanel sync={sync} />}
+      {sync && <div id="sync-panel"><SyncPanel sync={sync} /></div>}
 
       <section style={S.dashboard}>
         <div style={S.smallLabel}>Account</div>
@@ -3520,6 +3545,8 @@ const S = {
   expAdd: { width: 40, height: 40, borderRadius: "50%", background: "#c98b94", color: "#fff", fontSize: 20, lineHeight: 1, flexShrink: 0, transition: "opacity 0.2s" },
 
   footer: { textAlign: "center", marginTop: 28, fontSize: 12, color: "#c4aaa4" },
+  footerBtn: { background: "none", border: "none", padding: 0, margin: 0, fontSize: 12, fontFamily: "inherit", color: "inherit", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 },
+  footerChevron: { color: "#c4aaa4", fontSize: 14, lineHeight: 1 },
 
   /* welcome / sign-in */
   welcomePage: { fontFamily: "'Outfit', sans-serif", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "32px 22px", background: "radial-gradient(120% 80% at 50% 0%, #fbeee9 0%, #fbf6f3 55%, #f6ebe6 100%)", color: "#3a2e2c" },
