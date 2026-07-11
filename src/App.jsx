@@ -2247,7 +2247,11 @@ function GuestsView({ state, update }) {
         ))}
         <button onClick={() => setManaging((m) => !m)}
           style={{ ...S.filterPill, marginLeft: "auto", background: managing ? "#6b4a45" : "#fff", color: managing ? "#fff" : "#b58e87", borderColor: managing ? "#6b4a45" : "#f0e2dd" }}>
-          {managing ? "Done" : "⚙ Options"}
+          {managing ? "Done" : (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <Icon name="gear" size={13} color="#b58e87" /> Options
+            </span>
+          )}
         </button>
       </div>
 
