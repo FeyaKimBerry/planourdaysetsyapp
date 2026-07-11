@@ -2324,12 +2324,18 @@ function GuestsView({ state, update }) {
                         </div>
                       );
                     })}
-                    {grp !== "" && (
-                      <button onClick={() => addGuestToGroup(grp)}
-                        style={{ width: "100%", textAlign: "left", background: "none", border: "none", borderTop: "1px solid #f7ece8", padding: "12px 14px", color: "#b07a72", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'Fraunces', serif" }}>
-                        + Add guest to {label}
+                    <div style={{ display: "flex", alignItems: "center", borderTop: "1px solid #f7ece8" }}>
+                      {grp !== "" && (
+                        <button onClick={() => addGuestToGroup(grp)}
+                          style={{ flex: 1, textAlign: "left", background: "none", border: "none", padding: "12px 14px", color: "#b07a72", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'Fraunces', serif" }}>
+                          + Add guest to {label}
+                        </button>
+                      )}
+                      <button onClick={() => toggleGroup(grp)}
+                        style={{ marginLeft: "auto", background: "none", border: "none", padding: "12px 14px", color: "#b58e87", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                        Collapse <span style={{ fontSize: 11 }}>▲</span>
                       </button>
-                    )}
+                    </div>
                   </div>
                 )}
               </div>
