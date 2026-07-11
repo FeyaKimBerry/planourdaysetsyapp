@@ -1579,6 +1579,22 @@ function ChecklistView({ state, update }) {
   const editBucket = (bid, patch) => update((s) => { const b = s.checklist.find((x) => x.id === bid); if (b) Object.assign(b, patch); return s; });
   const deleteBucket = (bid) => update((s) => { s.checklist = s.checklist.filter((x) => x.id !== bid); return s; });
   const addBucket = () => update((s) => { s.checklist.push({ id: uid(), label: "New Section", tasks: [] }); return s; });
+  const moveBucket = (bid, dir) => update((s) => {
+    const i = s.checklist.findIndex((x) => x.id === bid);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= s.checklist.length) return s;
+    [s.checklist[i], s.checklist[j]] = [s.checklist[j], s.checklist[i]];
+    return s;
+  });
+  const moveTask = (bid, tid, dir) => update((s) => {
+    const b = s.checklist.find((x) => x.id === bid);
+    if (!b) return s;
+    const i = b.tasks.findIndex((x) => x.id === tid);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= b.tasks.length) return s;
+    [b.tasks[i], b.tasks[j]] = [b.tasks[j], b.tasks[i]];
+    return s;
+  });
 
   return (
     <>
@@ -1602,9 +1618,11 @@ function ChecklistView({ state, update }) {
       </section>
 
       <section>
-        {state.checklist.map((bucket) => {
+        {state.checklist.map((bucket, bIdx) => {
           const bDone = bucket.tasks.filter((t) => t.done).length;
           const isOpen = openBucket === bucket.id;
+          const isFirst = bIdx === 0;
+          const isLast = bIdx === state.checklist.length - 1;
           return (
             <div key={bucket.id} style={S.card}>
               <div style={{ ...S.cardHead, display: "flex", alignItems: "center" }}>
@@ -1614,6 +1632,12 @@ function ChecklistView({ state, update }) {
                     <div style={S.bucketLabel}>{bucket.label}</div>
                     <div style={S.bucketCount}>{bDone}/{bucket.tasks.length} done</div>
                   </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", marginRight: 2 }}>
+                  <button aria-label="Move section up" disabled={isFirst}
+                    onClick={(e) => { e.stopPropagation(); moveBucket(bucket.id, -1); }} style={S.moveBtn(isFirst)}>▲</button>
+                  <button aria-label="Move section down" disabled={isLast}
+                    onClick={(e) => { e.stopPropagation(); moveBucket(bucket.id, 1); }} style={S.moveBtn(isLast)}>▼</button>
                 </div>
                 {confirmDeleteBucket === bucket.id ? (
                   <div style={{ display: "flex", gap: 4, paddingRight: 10 }}>
@@ -1635,8 +1659,10 @@ function ChecklistView({ state, update }) {
                       value={bucket.label} onChange={(e) => editBucket(bucket.id, { label: e.target.value })} />
                     <button style={{ ...S.deleteCat, flexShrink: 0 }} onClick={() => { deleteBucket(bucket.id); setOpenBucket(null); }}>Delete section</button>
                   </div>
-                  {bucket.tasks.map((t) => {
+                  {bucket.tasks.map((t, tIdx) => {
                     const open = expanded === t.id;
+                    const tFirst = tIdx === 0;
+                    const tLast = tIdx === bucket.tasks.length - 1;
                     return (
                       <div key={t.id} style={S.taskItem}>
                         <div style={S.taskTop}>
@@ -1646,6 +1672,12 @@ function ChecklistView({ state, update }) {
                           </button>
                           <input style={{ ...S.taskName, textDecoration: t.done ? "line-through" : "none", color: t.done ? "#b9a39e" : "#3a2e2c" }}
                             value={t.name} onChange={(e) => editTask(bucket.id, t.id, { name: e.target.value })} />
+                          <div style={{ display: "flex", flexDirection: "column" }}>
+                            <button aria-label="Move task up" disabled={tFirst}
+                              onClick={() => moveTask(bucket.id, t.id, -1)} style={S.moveBtn(tFirst)}>▲</button>
+                            <button aria-label="Move task down" disabled={tLast}
+                              onClick={() => moveTask(bucket.id, t.id, 1)} style={S.moveBtn(tLast)}>▼</button>
+                          </div>
                           <button style={S.taskExpand} onClick={() => setExpanded(open ? null : t.id)}>
                             {open ? "−" : "⋯"}
                           </button>
@@ -3410,6 +3442,7 @@ const S = {
 
   /* trash delete pattern */
   trashBtn: { background: "none", border: "none", padding: "8px 10px", cursor: "pointer", color: "#c98b94", flexShrink: 0, lineHeight: 1, display: "flex", alignItems: "center" },
+  moveBtn: (disabled) => ({ background: "none", border: "none", padding: "1px 6px", cursor: disabled ? "default" : "pointer", color: disabled ? "#eaded9" : "#c98b94", fontSize: 10, lineHeight: 1.1, flexShrink: 0 }),
   trashConfirm: { background: "#c2566b", color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" },
   trashCancel: { background: "#f4e8e4", color: "#b58e87", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" },
 
