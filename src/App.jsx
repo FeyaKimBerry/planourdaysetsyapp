@@ -376,7 +376,7 @@ function ReconnectBanner({ busy, onReconnect }) {
       style={{
         display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
         background: "#fbecd8", borderBottom: "1px solid #f0d9b3",
-        color: "#7a5a1e", padding: "10px 16px", fontSize: 14,
+        color: "#7a5a1e", padding: "68px 16px 12px", fontSize: 14,
       }}
     >
       <span style={{ flex: 1, minWidth: 180 }}>
