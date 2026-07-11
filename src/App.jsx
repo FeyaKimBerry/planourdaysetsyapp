@@ -2097,19 +2097,21 @@ function GuestsView({ state, update }) {
         [g.name, g.group, g.notes].some((f) => (f || "").toLowerCase().includes(q))
       );
 
-  const addGuest = () => {
+  const addGuestToGroup = (grp) => {
+    const group = grp || "";
     const id = uid();
     update((s) => {
-      s.guests.push({ id, name: "", rsvp: "Invited", party: 1, meal: "", group: "", notes: "" });
+      s.guests.push({ id, name: "", rsvp: "Invited", party: 1, meal: "", group, notes: "" });
       return s;
     });
-    // A new guest starts ungrouped ("No group"); make sure that group is
-    // expanded and jump straight into the guest's info form.
-    setCollapsedGroups((prev) => ({ ...prev, "": false }));
+    // Make sure the target group is expanded and jump straight into the
+    // new guest's info form. Clear search/filter so the guest is visible.
+    setCollapsedGroups((prev) => ({ ...prev, [group]: false }));
     setFilter("All");
     setQuery("");
     setOpenGuest(id);
   };
+  const addGuest = () => addGuestToGroup("");
   const editGuest = (id, patch) =>
     update((s) => { const g = s.guests.find((x) => x.id === id); if (g) Object.assign(g, patch); return s; });
   const deleteGuest = (id) =>
@@ -2322,6 +2324,12 @@ function GuestsView({ state, update }) {
                         </div>
                       );
                     })}
+                    {grp !== "" && (
+                      <button onClick={() => addGuestToGroup(grp)}
+                        style={{ width: "100%", textAlign: "left", background: "none", border: "none", borderTop: "1px solid #f7ece8", padding: "12px 14px", color: "#b07a72", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'Fraunces', serif" }}>
+                        + Add guest to {label}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
