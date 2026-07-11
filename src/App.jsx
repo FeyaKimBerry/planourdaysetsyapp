@@ -1966,8 +1966,9 @@ function GuestsView({ state, update }) {
   const [filter, setFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [managing, setManaging] = useState(false);
+  // Groups start collapsed; a group is expanded only after the user taps it.
   const [collapsedGroups, setCollapsedGroups] = useState({});
-  const toggleGroup = (grp) => setCollapsedGroups((prev) => ({ ...prev, [grp]: !prev[grp] }));
+  const toggleGroup = (grp) => setCollapsedGroups((prev) => ({ ...prev, [grp]: !(prev[grp] ?? true) }));
   const [newGroupFor, setNewGroupFor] = useState(null);
   const [newGroupDraft, setNewGroupDraft] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -2094,7 +2095,8 @@ function GuestsView({ state, update }) {
           return allGroups.map((grp) => {
             const members = shown.filter((g) => (g.group || "") === grp);
             const label = grp || "No group";
-            const isCollapsed = !!collapsedGroups[grp];
+            // Default collapsed; expand on tap, and always expand while searching.
+            const isCollapsed = q ? false : (collapsedGroups[grp] ?? true);
             const yesCount = members.filter((g) => g.rsvp === "Yes").length;
             return (
               <div key={grp || "__none__"} style={{ marginBottom: 6 }}>
