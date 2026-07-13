@@ -503,7 +503,7 @@ const SETUP_STEPS = [
   { key: "venue",    emoji: "🏛️", title: "Do you have a venue in mind?",      hint: "Optional — skip if you haven't decided yet." },
 ];
 
-function SetupWizard({ onFinish, onSkipAll }) {
+function SetupWizard({ onFinish, onSkipAll, onClose }) {
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState({ partner1: "", partner2: "", weddingDate: "", total: "", currency: "AUD", venue: "" });
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
@@ -526,6 +526,7 @@ function SetupWizard({ onFinish, onSkipAll }) {
   return (
     <div style={S.guideOverlay}>
       <div style={S.guideCard}>
+        <button style={S.guideClose} onClick={onClose} aria-label="Close setup">×</button>
         <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", color: "#c4aaa4", marginBottom: 18 }}>
           Step {step + 1} of {total}
         </div>
@@ -947,7 +948,9 @@ export default function WeddingPlanner() {
         </>
       )}
 
-      {showSetup && <SetupWizard onFinish={finishSetup} onSkipAll={() => { localStorage.setItem(SETUP_KEY, "1"); setShowSetup(false); setShowGuide(true); }} />}
+      {showSetup && <SetupWizard onFinish={finishSetup}
+        onSkipAll={() => { localStorage.setItem(SETUP_KEY, "1"); setShowSetup(false); setShowGuide(true); }}
+        onClose={() => { localStorage.setItem(SETUP_KEY, "1"); localStorage.setItem(GUIDE_KEY, "1"); setShowSetup(false); setShowGuide(false); }} />}
       {showGuide && <GuideModal onClose={closeGuide} />}
 
       {syncState === NEEDS_RECONNECT && (
