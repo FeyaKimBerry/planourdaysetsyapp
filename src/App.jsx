@@ -1244,6 +1244,47 @@ function HomeView({ state, update, go }) {
       return s;
     });
 
+  // Banner reposition: drag the cover photo to choose which part shows in the
+  // fixed-height banner (object-fit: cover crops, object-position picks the
+  // focal point). Live drag stays in local state; we commit on release.
+  const cover = photos[0];
+  const [reframing, setReframing] = useState(false);
+  // The banner is clean by default; tapping it reveals the Reframe/remove
+  // controls so they're out of the way until wanted.
+  const [controlsShown, setControlsShown] = useState(false);
+  const [draftPos, setDraftPos] = useState({ x: 50, y: 50 });
+  const reframeRef = useRef(null);
+  const posRef = useRef({ x: 50, y: 50 });
+  const coverPos = reframing ? draftPos : (cover && cover.pos) || { x: 50, y: 50 };
+
+  const startReframe = () => {
+    const p = (cover && cover.pos) || { x: 50, y: 50 };
+    posRef.current = p;
+    setDraftPos(p);
+    setControlsShown(false);
+    setReframing(true);
+  };
+  const commitReframe = () =>
+    update((s) => { if (s.photos && s.photos[0]) s.photos[0].pos = posRef.current; return s; });
+  const endReframe = () => { commitReframe(); setReframing(false); };
+  const onReframeDown = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    reframeRef.current = { sx: e.clientX, sy: e.clientY, bx: draftPos.x, by: draftPos.y, w: rect.width, h: rect.height };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+  };
+  const onReframeMove = (e) => {
+    const r = reframeRef.current;
+    if (!r) return;
+    e.preventDefault();
+    // Dragging the photo down should reveal more of its top, so subtract.
+    const nx = Math.min(100, Math.max(0, r.bx - ((e.clientX - r.sx) / r.w) * 100));
+    const ny = Math.min(100, Math.max(0, r.by - ((e.clientY - r.sy) / r.h) * 100));
+    posRef.current = { x: nx, y: ny };
+    setDraftPos(posRef.current);
+  };
+  const onReframeUp = () => { if (reframeRef.current) { reframeRef.current = null; commitReframe(); } };
+
   const dateRef = React.useRef(null);
   const openDatePicker = () => {
     const el = dateRef.current;
@@ -1281,8 +1322,27 @@ function HomeView({ state, update, go }) {
       {/* hero photo */}
       {photos.length > 0 && (
         <div style={S.heroPhotoWrap}>
-          <img src={photos[0].src} alt="The couple" style={S.heroPhoto} />
-          <button style={S.heroPhotoRemove} onClick={() => removePhoto(photos[0].id)}>×</button>
+          <img
+            src={cover.src}
+            alt="The couple"
+            style={{ ...S.heroPhoto, objectPosition: `${coverPos.x}% ${coverPos.y}%`, cursor: reframing ? "grab" : "pointer", touchAction: reframing ? "none" : "auto" }}
+            onClick={reframing ? undefined : () => setControlsShown((v) => !v)}
+            onPointerDown={reframing ? onReframeDown : undefined}
+            onPointerMove={reframing ? onReframeMove : undefined}
+            onPointerUp={reframing ? onReframeUp : undefined}
+            onPointerCancel={reframing ? onReframeUp : undefined}
+          />
+          {reframing ? (
+            <>
+              <div style={S.reframeHint}>Drag the photo to reposition</div>
+              <button style={S.reframeDone} onClick={endReframe}>Done</button>
+            </>
+          ) : controlsShown ? (
+            <>
+              <button style={S.reframeBtn} onClick={startReframe}>Reframe</button>
+              <button style={S.heroPhotoRemove} onClick={() => removePhoto(cover.id)}>×</button>
+            </>
+          ) : null}
         </div>
       )}
 
@@ -3639,6 +3699,9 @@ const S = {
   heroPhotoWrap: { position: "relative", borderRadius: 20, overflow: "hidden", marginBottom: 4, boxShadow: "0 14px 40px -22px rgba(150,100,95,0.7)" },
   heroPhoto: { width: "100%", height: 240, objectFit: "cover", display: "block" },
   heroPhotoRemove: { position: "absolute", top: 12, right: 12, width: 30, height: 30, borderRadius: "50%", background: "rgba(58,46,44,0.55)", color: "#fff", fontSize: 18, lineHeight: 1, backdropFilter: "blur(4px)" },
+  reframeBtn: { position: "absolute", bottom: 12, left: 12, background: "rgba(58,46,44,0.55)", color: "#fff", border: "none", borderRadius: 999, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", backdropFilter: "blur(4px)" },
+  reframeDone: { position: "absolute", bottom: 12, right: 12, background: "#c98b94", color: "#fff", border: "none", borderRadius: 999, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+  reframeHint: { position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "rgba(58,46,44,0.6)", color: "#fff", fontSize: 12, padding: "6px 12px", borderRadius: 999, backdropFilter: "blur(4px)", pointerEvents: "none", whiteSpace: "nowrap" },
   galleryHead: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
   addPhotoBtn: { fontSize: 13, fontWeight: 500, color: "#fff", background: "#c98b94", padding: "8px 14px", borderRadius: 99, cursor: "pointer" },
   galleryEmpty: { fontSize: 14, color: "#b58e87", lineHeight: 1.5 },
