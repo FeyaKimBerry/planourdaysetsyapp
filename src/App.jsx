@@ -1235,6 +1235,14 @@ function HomeView({ state, update, go }) {
 
   const removePhoto = (id) =>
     update((s) => { s.photos = (s.photos || []).filter((p) => p.id !== id); return s; });
+  // Make a photo the cover/banner by moving it to the front of the list.
+  const setCover = (id) =>
+    update((s) => {
+      const arr = s.photos || [];
+      const i = arr.findIndex((p) => p.id === id);
+      if (i > 0) { const [p] = arr.splice(i, 1); arr.unshift(p); }
+      return s;
+    });
 
   const dateRef = React.useRef(null);
   const openDatePicker = () => {
@@ -1329,10 +1337,19 @@ function HomeView({ state, update, go }) {
             {photos.map((p, i) => (
               <div key={p.id} style={S.galleryItem}>
                 <img src={p.src} alt="" style={S.galleryImg} />
-                {i === 0 && <span style={S.bannerTag}>Banner</span>}
+                {i === 0 ? (
+                  <span style={S.bannerTag}>★ Banner</span>
+                ) : (
+                  <button style={S.setCoverBtn} onClick={() => setCover(p.id)} aria-label="Set as banner photo">☆ Cover</button>
+                )}
                 <button style={S.galleryRemove} onClick={() => removePhoto(p.id)}>×</button>
               </div>
             ))}
+          </div>
+        )}
+        {photos.length > 1 && (
+          <div style={{ fontSize: 12, color: "#b58e87", marginTop: 8 }}>
+            Tap “☆ Cover” on a photo to make it your banner.
           </div>
         )}
       </section>
@@ -3630,6 +3647,7 @@ const S = {
   galleryImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
   galleryRemove: { position: "absolute", top: 5, right: 5, width: 24, height: 24, borderRadius: "50%", background: "rgba(58,46,44,0.55)", color: "#fff", fontSize: 15, lineHeight: 1 },
   bannerTag: { position: "absolute", bottom: 5, left: 5, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6b4a45", background: "rgba(255,255,255,0.9)", padding: "3px 7px", borderRadius: 6 },
+  setCoverBtn: { position: "absolute", bottom: 5, left: 5, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#fff", background: "rgba(58,46,44,0.6)", border: "none", padding: "3px 7px", borderRadius: 6, cursor: "pointer" },
   heroNames: { fontFamily: "'Fraunces', serif", fontSize: "clamp(36px, 11vw, 56px)", fontWeight: 600, fontStyle: "italic", color: "#6b4a45", margin: "8px 0 10px", lineHeight: 1.05 },
   heroDate: { fontSize: 15, color: "#b58e87", marginBottom: 16 },
   countdownPill: { display: "inline-block", background: "linear-gradient(90deg,#d9a7a0,#c98b94)", color: "#fff", fontWeight: 600, fontSize: 15, padding: "9px 22px", borderRadius: 99, boxShadow: "0 8px 24px -10px rgba(201,139,148,0.7)" },
