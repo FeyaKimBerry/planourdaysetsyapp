@@ -2607,10 +2607,11 @@ function OptionEditor({ title, listKey, items, onAdd, onRename, onRemove }) {
 /* ============================================================
    PDF EXPORT
    ------------------------------------------------------------
-   Dependency-free: we build a print-optimized HTML document for
-   the whole plan and hand it to the browser's print dialog, where
-   "Save as PDF" is available on every platform. Keeping it library-
-   free matches the rest of the app (React + nothing else).
+   We build a print-optimized HTML document for the whole plan,
+   render it in an offscreen iframe, and use html2pdf.js (loaded on
+   demand) to rasterize it into a real .pdf that downloads straight
+   to the device — identical on desktop, iPhone and Android, with no
+   browser print dialog to navigate.
    ============================================================ */
 
 // Escape user-entered text before it goes into the print document.
@@ -2694,39 +2695,40 @@ function buildPlannerHtml(state) {
   const section = (title, body, show = true) =>
     show ? `<section><h2>${title}</h2>${body}</section>` : "";
 
-  return `<!doctype html><html><head><meta charset="utf-8" />
-<title>${esc(names)} — Wedding Plan</title>
+  // Everything lives inside a single .pod-pdf root with its styles scoped to
+  // that class. That way the styling travels *with* the node — it survives
+  // being cloned into the PDF renderer, and it can't leak into the live app
+  // when we show it in the preview modal.
+  return `<div class="pod-pdf">
 <style>
-  @page { margin: 18mm 16mm; }
-  * { box-sizing: border-box; }
-  body { font-family: Georgia, 'Times New Roman', serif; color: #3a2e2c; margin: 0; line-height: 1.45; }
-  .cover { text-align: center; padding: 40px 0 28px; border-bottom: 2px solid #e9d3cd; margin-bottom: 28px; }
-  .kicker { text-transform: uppercase; letter-spacing: 0.18em; font-size: 12px; color: #b07a72; }
-  h1 { font-size: 34px; margin: 8px 0 6px; font-weight: 600; }
-  .cover .date { font-size: 16px; color: #6b4a45; }
-  .cover .venue { font-size: 14px; color: #8a6d68; margin-top: 4px; }
-  .vision { font-style: italic; color: #6b4a45; max-width: 460px; margin: 14px auto 0; }
-  section { margin-bottom: 26px; page-break-inside: avoid; }
-  h2 { font-size: 19px; color: #b07a72; border-bottom: 1px solid #f0e2dd; padding-bottom: 5px; margin: 0 0 12px; }
-  h3 { font-size: 14px; margin: 0 0 6px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  td, th { text-align: left; padding: 7px 6px; border-bottom: 1px solid #f2e6e2; vertical-align: top; }
-  th { color: #b58e87; text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
-  .num { text-align: right; white-space: nowrap; }
-  .muted { color: #a98e88; font-weight: normal; }
-  .sub { font-size: 12px; color: #8a6d68; margin-top: 2px; }
-  .note { font-size: 12px; color: #8a6d68; margin-left: 18px; }
-  .block { margin-bottom: 14px; page-break-inside: avoid; }
-  ul { margin: 0; padding-left: 20px; font-size: 13px; }
-  li { margin: 2px 0; }
-  li.done { color: #9c8f8b; }
-  .summary { display: flex; gap: 10px; margin-bottom: 14px; }
-  .stat { flex: 1; border: 1px solid #f0e2dd; border-radius: 8px; padding: 10px; text-align: center; }
-  .stat .big { font-size: 18px; font-weight: 600; }
-  .stat .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #b58e87; }
-  .foot { text-align: center; font-size: 11px; color: #b58e87; margin-top: 30px; }
-</style></head>
-<body>
+  .pod-pdf * { box-sizing: border-box; }
+  .pod-pdf { font-family: Georgia, 'Times New Roman', serif; color: #3a2e2c; line-height: 1.45; background: #ffffff; width: 760px; margin: 0 auto; padding: 34px 40px; }
+  .pod-pdf .cover { text-align: center; padding: 6px 0 26px; border-bottom: 2px solid #e9d3cd; margin-bottom: 28px; }
+  .pod-pdf .kicker { text-transform: uppercase; letter-spacing: 0.18em; font-size: 12px; color: #b07a72; }
+  .pod-pdf h1 { font-size: 34px; margin: 8px 0 6px; font-weight: 600; }
+  .pod-pdf .cover .date { font-size: 16px; color: #6b4a45; }
+  .pod-pdf .cover .venue { font-size: 14px; color: #8a6d68; margin-top: 4px; }
+  .pod-pdf .vision { font-style: italic; color: #6b4a45; max-width: 460px; margin: 14px auto 0; }
+  .pod-pdf section { margin-bottom: 26px; page-break-inside: avoid; }
+  .pod-pdf h2 { font-size: 19px; color: #b07a72; border-bottom: 1px solid #f0e2dd; padding-bottom: 5px; margin: 0 0 12px; }
+  .pod-pdf h3 { font-size: 14px; margin: 0 0 6px; }
+  .pod-pdf table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .pod-pdf td, .pod-pdf th { text-align: left; padding: 7px 6px; border-bottom: 1px solid #f2e6e2; vertical-align: top; }
+  .pod-pdf th { color: #b58e87; text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
+  .pod-pdf .num { text-align: right; white-space: nowrap; }
+  .pod-pdf .muted { color: #a98e88; font-weight: normal; }
+  .pod-pdf .sub { font-size: 12px; color: #8a6d68; margin-top: 2px; }
+  .pod-pdf .note { font-size: 12px; color: #8a6d68; margin-left: 18px; }
+  .pod-pdf .block { margin-bottom: 14px; page-break-inside: avoid; }
+  .pod-pdf ul { margin: 0; padding-left: 20px; font-size: 13px; }
+  .pod-pdf li { margin: 2px 0; }
+  .pod-pdf li.done { color: #9c8f8b; }
+  .pod-pdf .summary { display: flex; gap: 10px; margin-bottom: 14px; }
+  .pod-pdf .stat { flex: 1; border: 1px solid #f0e2dd; border-radius: 8px; padding: 10px; text-align: center; }
+  .pod-pdf .stat .big { font-size: 18px; font-weight: 600; }
+  .pod-pdf .stat .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #b58e87; }
+  .pod-pdf .foot { text-align: center; font-size: 11px; color: #b58e87; margin-top: 30px; }
+</style>
   <div class="cover">
     <div class="kicker">Wedding Plan</div>
     <h1>${esc(names)}</h1>
@@ -2763,7 +2765,7 @@ function buildPlannerHtml(state) {
   ${section("Seating", `<div class="seating">${seatingHtml}</div>`, (state.tables || []).length > 0)}
 
   <div class="foot">Created with Planourdays · ${esc(new Date().toLocaleDateString())}</div>
-</body></html>`;
+</div>`;
 }
 
 /* ============================================================
@@ -2798,21 +2800,45 @@ function SettingsView({ state, update, setState, go, connected, onSignOut, sync 
     URL.revokeObjectURL(url);
   };
 
-  const exportPDF = () => {
-    const html = buildPlannerHtml(state);
-    const win = window.open("", "_blank");
-    if (!win) {
-      alert("Please allow pop-ups for this site to export your plan to PDF.");
-      return;
+  // PDF export is a two-step flow: open a preview of the styled plan, then
+  // let the user save it. The preview node itself is what gets turned into
+  // the PDF, so what they see is exactly what they save.
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const previewRef = useRef(null);
+
+  const savePDF = async () => {
+    const node = previewRef.current?.querySelector(".pod-pdf");
+    if (!node || pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const base =
+        (state.partner1 && state.partner2
+          ? `${state.partner1}-and-${state.partner2}`
+          : state.partner1 || state.partner2 || "our")
+          .replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "our";
+      const stamp = new Date().toISOString().slice(0, 10);
+
+      // Loaded on demand so the PDF library isn't in the app's initial download.
+      const mod = await import("html2pdf.js");
+      const html2pdf = mod.default || mod;
+      await html2pdf()
+        .set({
+          margin: [10, 10, 12, 10],
+          filename: `${base}-wedding-plan-${stamp}.pdf`,
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, backgroundColor: "#ffffff", useCORS: true },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+          pagebreak: { mode: ["css", "avoid-all"] },
+        })
+        .from(node)
+        .save();
+      setShowPdfPreview(false);
+    } catch (e) {
+      alert("Sorry — something went wrong creating the PDF. Please try again.");
+    } finally {
+      setPdfBusy(false);
     }
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
-    // Wait for fonts/layout before invoking the browser's print → Save as PDF.
-    win.onload = () => {
-      win.focus();
-      win.print();
-    };
   };
 
   const importData = (file) => {
@@ -2866,8 +2892,8 @@ function SettingsView({ state, update, setState, go, connected, onSignOut, sync 
       {/* Export to PDF */}
       <section style={S.dashboard}>
         <div style={S.smallLabel}>Export to PDF</div>
-        <p style={S.settingHint}>Create a printable PDF of your whole plan — couple details, budget, checklist, vendors, guests and seating. Opens your print dialog; choose “Save as PDF”.</p>
-        <button style={S.settingBtn} onClick={exportPDF}>Export plan to PDF</button>
+        <p style={S.settingHint}>Preview your whole plan — couple details, budget, checklist, vendors, guests and seating — then download it as a PDF straight to your device (your Files or Downloads), on phone or computer.</p>
+        <button style={S.settingBtn} onClick={() => setShowPdfPreview(true)}>Preview &amp; download PDF</button>
       </section>
 
       {/* Backup */}
@@ -2915,6 +2941,31 @@ function SettingsView({ state, update, setState, go, connected, onSignOut, sync 
           {connected ? "Disconnect Google & sign out" : "Sign out"}
         </button>
       </section>
+
+      {/* PDF preview — shows the styled plan exactly as it will be saved. */}
+      {showPdfPreview && (
+        <div style={S.pdfOverlay} onClick={() => !pdfBusy && setShowPdfPreview(false)}>
+          <div style={S.pdfCard} onClick={(e) => e.stopPropagation()}>
+            <div style={S.pdfHead}>
+              <div>
+                <div style={S.pdfHeadTitle}>Your plan PDF</div>
+                <div style={S.pdfHeadHint}>This is exactly what will be saved.</div>
+              </div>
+              <button style={S.pdfClose} onClick={() => !pdfBusy && setShowPdfPreview(false)} aria-label="Close preview">×</button>
+            </div>
+            <div style={S.pdfScroll}>
+              <div ref={previewRef} dangerouslySetInnerHTML={{ __html: buildPlannerHtml(state) }} />
+            </div>
+            <div style={S.pdfActions}>
+              <button style={{ ...S.settingBtn, ...S.settingBtnOutline, flex: 1 }} disabled={pdfBusy}
+                onClick={() => setShowPdfPreview(false)}>Close</button>
+              <button style={{ ...S.settingBtn, flex: 1 }} disabled={pdfBusy} onClick={savePDF}>
+                {pdfBusy ? "Saving…" : "Save to my device"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -3666,6 +3717,16 @@ const S = {
   confirmBox: { marginTop: 14 },
   confirmText: { fontSize: 14, color: "#6b4a45", marginBottom: 10, fontWeight: 500 },
   confirmRow: { display: "flex", gap: 10 },
+
+  /* PDF preview modal */
+  pdfOverlay: { position: "fixed", inset: 0, background: "rgba(58,46,44,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 120 },
+  pdfCard: { background: "#fff", borderRadius: 18, width: "100%", maxWidth: 720, maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 60px -20px rgba(80,50,46,0.5)" },
+  pdfHead: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", borderBottom: "1px solid #f0e2dd" },
+  pdfHeadTitle: { fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 600, color: "#6b4a45" },
+  pdfHeadHint: { fontSize: 12, color: "#b58e87", marginTop: 2 },
+  pdfClose: { width: 34, height: 34, borderRadius: "50%", border: "none", background: "#f6ece8", color: "#b07a72", fontSize: 20, lineHeight: 1, cursor: "pointer", flexShrink: 0 },
+  pdfScroll: { flex: 1, overflow: "auto", background: "#efe4df", padding: 14, WebkitOverflowScrolling: "touch" },
+  pdfActions: { display: "flex", gap: 10, padding: "14px 18px", borderTop: "1px solid #f0e2dd" },
   settingsFootnote: { textAlign: "center", fontSize: 13, color: "#c4aaa4", marginTop: 8, lineHeight: 1.5 },
 
   /* seating */
