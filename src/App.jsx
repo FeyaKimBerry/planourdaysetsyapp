@@ -1266,6 +1266,25 @@ function ActivationGate({ onActivated }) {
    HOME / COUPLE PROFILE VIEW
    ============================================================ */
 
+// Short "12 Jun 2027" for a yyyy-mm-dd string; "" if it isn't a real date.
+function shortDate(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00");
+  if (isNaN(d)) return "";
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+// How a balance due date should read and colour: overdue, due soon (within a
+// fortnight), or simply scheduled.
+function dueTone(dateStr) {
+  const days = daysUntil(dateStr);
+  if (days === null) return null;
+  if (days < 0) return { tone: "error", label: `Overdue — was due ${shortDate(dateStr)}` };
+  if (days === 0) return { tone: "error", label: "Balance due today" };
+  if (days <= 14) return { tone: "warn", label: `Balance due in ${days} day${days > 1 ? "s" : ""}` };
+  return { tone: "ok", label: `Balance due ${shortDate(dateStr)}` };
+}
+
 function daysUntil(dateStr) {
   if (!dateStr) return null;
   const today = new Date();
@@ -1619,12 +1638,18 @@ function BudgetView({ state, update, go }) {
             </div>
             <div style={S.committedHint}>Contracted amounts you haven't paid yet — booked vendors only</div>
             <div style={S.owedList}>
-              {vendorsOwed.map((v, i) => (
-                <div key={i} style={S.owedRow}>
-                  <span style={S.owedName}>{v.name || "Vendor"}</span>
-                  <span style={S.owedAmt}>{fmt(v.owed)} owing</span>
-                </div>
-              ))}
+              {vendorsOwed.map((v, i) => {
+                const d = dueTone(v.dueDate);
+                return (
+                  <div key={i} style={S.owedRow}>
+                    <span style={S.owedName}>
+                      {v.name || "Vendor"}
+                      {d && <span style={{ ...S.owedDue, color: SAVE_TONE_COLOR[d.tone] }}>{d.label}</span>}
+                    </span>
+                    <span style={S.owedAmt}>{fmt(v.owed)} owing</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -1720,7 +1745,7 @@ function BudgetView({ state, update, go }) {
                           <span style={{ ...S.catVendorAmt, ...(v.counted ? null : S.catVendorMuted) }}>
                             {!v.counted ? `${v.status} · not counted`
                               : v.contracted === 0 ? "No total set"
-                              : v.owed > 0 ? `${fmt(v.owed)} owing`
+                              : v.owed > 0 ? `${fmt(v.owed)} owing${v.dueDate ? ` · due ${shortDate(v.dueDate)}` : ""}`
                               : "Paid in full"}
                           </span>
                           <span style={S.footerChevron}>›</span>
@@ -2086,6 +2111,7 @@ function VendorsView({ state, update }) {
         status: "Researching",
         notes: "",
         contracted: 0,
+        dueDate: "", // when the remaining balance has to be paid
       };
       s.vendors.push(v);
       return s;
@@ -2198,6 +2224,11 @@ function VendorsView({ state, update }) {
                       <span style={S.catSpent}>{fmt(paid)}</span>
                       {vendor.contracted > 0 && <span style={S.catOf}>of {fmt(vendor.contracted)}</span>}
                     </div>
+                    {/* Only worth showing while money is still owed on it. */}
+                    {vendor.dueDate && paid < (Number(vendor.contracted) || 0) && (() => {
+                      const d = dueTone(vendor.dueDate);
+                      return d ? <div style={{ ...S.dueLine, color: SAVE_TONE_COLOR[d.tone] }}>{d.label}</div> : null;
+                    })()}
                   </div>
                 </div>
                 {confirmDeleteVendor === vendor.id ? (
@@ -2261,6 +2292,10 @@ function VendorsView({ state, update }) {
                           value={vendor.contracted === 0 ? "" : vendor.contracted} placeholder="0"
                           onChange={(e) => editVendor(vendor.id, { contracted: Number(e.target.value) || 0 })} />
                       </div>
+                    </Field>
+                    <Field label="Balance due">
+                      <input type="date" style={S.fieldInput} value={vendor.dueDate || ""}
+                        onChange={(e) => editVendor(vendor.id, { dueDate: e.target.value })} />
                     </Field>
                     <Field label="Phone">
                       <input style={S.fieldInput} placeholder="Phone" value={vendor.phone}
@@ -3469,6 +3504,9 @@ function applyChooseVenue(s, id) {
 
   // Remove any previously auto-created venue vendor + its expenses
   const old = s.vendors.find((x) => x.fromVenue);
+  // Re-confirming the same venue shouldn't wipe the balance due date they set
+  // on it; switching to a different venue should.
+  const keptDue = old && old.name === v.name ? old.dueDate || "" : "";
   if (old) {
     for (const c of s.categories)
       c.expenses = c.expenses.filter((e) => e.vendorId !== old.id);
@@ -3487,6 +3525,7 @@ function applyChooseVenue(s, id) {
     status: "Booked",
     notes: v.notes || "",
     contracted: v.price || 0,
+    dueDate: keptDue, // when the venue's remaining balance is due
     fromVenue: true,
   });
 
@@ -3883,6 +3922,8 @@ const S = {
   deleteWarn: { background: "#fdf0f2", borderTop: "1px solid #f6dde2", padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
   deleteWarnText: { flex: 1, minWidth: 180, fontSize: 13, color: "#9c5560", lineHeight: 1.45 },
   deleteWarnBtns: { display: "flex", gap: 6, flexShrink: 0 },
+  dueLine: { fontSize: 12, marginTop: 4, fontWeight: 600 },
+  owedDue: { display: "block", fontSize: 11, marginTop: 2, fontWeight: 600 },
   suggestBox: { marginTop: 18 },
   suggestHint: { fontSize: 12, color: "#c4aaa4", margin: "2px 0 10px" },
   suggestWrap: { display: "flex", flexWrap: "wrap", gap: 8 },
