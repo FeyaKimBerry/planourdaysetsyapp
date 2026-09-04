@@ -345,6 +345,26 @@ function vendorExpenses(state, vendorId) {
   return out;
 }
 
+// Only a booked vendor counts toward the budget. Quotes you're still weighing
+// up ("Researching"/"Contacted") would otherwise stack up — three photographer
+// quotes would read as three photographers to pay for.
+const countsInBudget = (v) => v.status === "Booked";
+
+// What a vendor has been paid so far, and what's still owed on their contract.
+function vendorMoney(state, v) {
+  const paid = vendorExpenses(state, v.id).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const contracted = Number(v.contracted) || 0;
+  return { ...v, paid, contracted, owed: Math.max(0, contracted - paid), counted: countsInBudget(v) };
+}
+
+// Vendors filed under a budget category. Lets the Budget page show the vendors
+// behind a category instead of only counting logged expenses.
+function categoryVendors(state, catId) {
+  return (state.vendors || [])
+    .filter((v) => v.categoryId === catId)
+    .map((v) => vendorMoney(state, v));
+}
+
 /* ============================================================
    ROOT — shell + bottom nav
    ============================================================ */
@@ -1019,7 +1039,7 @@ export default function WeddingPlanner() {
         </div>
 
         {tab === "home" && <HomeView state={state} update={update} go={goTab} />}
-        {tab === "budget" && <BudgetView state={state} update={update} />}
+        {tab === "budget" && <BudgetView state={state} update={update} go={goTab} />}
         {tab === "checklist" && <ChecklistView state={state} update={update} />}
         {tab === "vendors" && <VendorsView state={state} update={update} />}
         {tab === "guests" && <GuestsView state={state} update={update} />}
@@ -1486,7 +1506,7 @@ function SummaryCard({ onClick, icon, label, big, sub }) {
 }
 
 
-function BudgetView({ state, update }) {
+function BudgetView({ state, update, go }) {
   const [openCat, setOpenCat] = useState(null);
   const [confirmDeleteCat, setConfirmDeleteCat] = useState(null);
 
@@ -1503,17 +1523,22 @@ function BudgetView({ state, update }) {
   // What's contractually committed to vendors but not yet paid:
   // for each vendor, max(0, contracted - payments logged so far).
   const vendorsOwed = (state.vendors || [])
-    .map((v) => {
-      const paid = vendorExpenses(state, v.id).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-      return { name: v.name, owed: Math.max(0, (Number(v.contracted) || 0) - paid) };
-    })
+    .filter(countsInBudget) // shortlisted quotes must not inflate the total
+    .map((v) => vendorMoney(state, v))
     .filter((v) => v.owed > 0);
   const totalCommitted = vendorsOwed.reduce((s, v) => s + v.owed, 0);
 
   const setTotal = (v) => update((s) => { s.total = Math.max(0, Number(v) || 0); return s; });
   const addCategory = () => update((s) => { s.categories.push({ id: uid(), name: "New Category", allocated: 0, expenses: [] }); return s; });
   const editCategory = (id, patch) => update((s) => { const c = s.categories.find((x) => x.id === id); if (c) Object.assign(c, patch); return s; });
-  const deleteCategory = (id) => update((s) => { s.categories = s.categories.filter((x) => x.id !== id); return s; });
+  const deleteCategory = (id) => update((s) => {
+    s.categories = s.categories.filter((x) => x.id !== id);
+    // Vendors filed under it would otherwise keep a dead categoryId: the picker
+    // then shows the first category while the vendor is really linked to none.
+    const fallback = s.categories[0]?.id || "";
+    for (const v of s.vendors) if (v.categoryId === id) v.categoryId = fallback;
+    return s;
+  });
   const reorderCategory = (from, to) => update((s) => {
     const n = s.categories.length;
     if (from === to || from < 0 || to < 0 || from >= n || to >= n) return s;
@@ -1566,7 +1591,7 @@ function BudgetView({ state, update }) {
               <span style={S.committedLabel}>Still to pay vendors</span>
               <span style={S.committedValue}>{fmt(totalCommitted)}</span>
             </div>
-            <div style={S.committedHint}>Contracted amounts you haven't paid yet</div>
+            <div style={S.committedHint}>Contracted amounts you haven't paid yet — booked vendors only</div>
             <div style={S.owedList}>
               {vendorsOwed.map((v, i) => (
                 <div key={i} style={S.owedRow}>
@@ -1586,6 +1611,12 @@ function BudgetView({ state, update }) {
           const diff = cat.allocated - spent;
           const isOpen = openCat === cat.id;
           const dragging = dragId === String(cat.id);
+          // Vendors filed here. Their contracted totals aren't spending, so they
+          // don't move the numbers — but the category must still show them, or a
+          // vendor you assigned here looks like it went nowhere.
+          const catVendors = categoryVendors(state, cat.id);
+          const catOwed = catVendors.reduce((s, v) => s + (v.counted ? v.owed : 0), 0);
+          const catConsidering = catVendors.filter((v) => !v.counted).length;
           return (
             <div key={cat.id} data-drag-id={cat.id} style={{ ...S.card, ...(dragging ? S.dragLifted : null) }}>
               <div style={{ ...S.cardHead, display: "flex", alignItems: "center" }}>
@@ -1601,20 +1632,40 @@ function BudgetView({ state, update }) {
                       {diff < 0 ? `${fmt(-diff)} over` : `${fmt(diff)} left`}
                     </span>
                   </div>
+                  {catVendors.length > 0 && (
+                    <div style={S.catVendorHint}>
+                      {catVendors.length} vendor{catVendors.length > 1 ? "s" : ""}
+                      {catOwed > 0 ? ` · ${fmt(catOwed)} still to pay` : ""}
+                      {catConsidering > 0 ? ` · ${catConsidering} being considered` : ""}
+                    </div>
+                  )}
                 </div>
                 </div>
-                {confirmDeleteCat === cat.id ? (
-                  <div style={{ display: "flex", gap: 4, paddingRight: 10 }}>
-                    <button onClick={(e) => { e.stopPropagation(); deleteCategory(cat.id); setConfirmDeleteCat(null); }}
-                      style={S.trashConfirm}>Delete</button>
-                    <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteCat(null); }}
-                      style={S.trashCancel}>Cancel</button>
-                  </div>
-                ) : (
-                  <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteCat(cat.id); }}
-                    style={S.trashBtn}><Icon name="trash" size={18} color="#c98b94" /></button>
-                )}
+                <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteCat(cat.id); }}
+                  style={S.trashBtn}><Icon name="trash" size={18} color="#c98b94" /></button>
               </div>
+
+              {/* Deleting a category also deletes the payments logged in it, so
+                  say exactly what's about to be lost before it happens. */}
+              {confirmDeleteCat === cat.id && (
+                <div style={S.deleteWarn}>
+                  <div style={S.deleteWarnText}>
+                    Delete <strong>{cat.name}</strong>?
+                    {cat.expenses.length > 0 && (
+                      <> This also deletes {cat.expenses.length} payment{cat.expenses.length > 1 ? "s" : ""} worth {fmt(spent)}.</>
+                    )}
+                    {catVendors.length > 0 && (
+                      <> {catVendors.length} vendor{catVendors.length > 1 ? "s" : ""} will move to {state.categories.find((c) => c.id !== cat.id)?.name || "no category"}.</>
+                    )}
+                    {cat.expenses.length === 0 && catVendors.length === 0 && <> Nothing is logged in it.</>}
+                  </div>
+                  <div style={S.deleteWarnBtns}>
+                    <button onClick={() => { deleteCategory(cat.id); setConfirmDeleteCat(null); }}
+                      style={S.trashConfirm}>Delete</button>
+                    <button onClick={() => setConfirmDeleteCat(null)} style={S.trashCancel}>Cancel</button>
+                  </div>
+                </div>
+              )}
 
               {isOpen && (
                 <div style={S.cardBody}>
@@ -1630,8 +1681,31 @@ function BudgetView({ state, update }) {
                       <input type="number" inputMode="numeric" value={cat.allocated === 0 ? "" : cat.allocated}
                         placeholder="0" onChange={(e) => editCategory(cat.id, { allocated: Number(e.target.value) || 0 })} style={S.miniInput} />
                     </div>
-                    <button style={S.deleteCat} onClick={() => deleteCategory(cat.id)}>Delete</button>
+                    <button style={S.deleteCat} onClick={() => setConfirmDeleteCat(cat.id)}>Delete</button>
                   </div>
+                  {catVendors.length > 0 && (
+                    <div style={S.catVendorBox}>
+                      <label style={S.smallLabel}>Vendors in this category</label>
+                      {catVendors.map((v) => (
+                        <button key={v.id} style={S.catVendorRow} onClick={() => go("vendors")}>
+                          <span style={{ ...S.catVendorName, ...(v.counted ? null : S.catVendorMuted) }}>
+                            {v.name || "Vendor"}
+                          </span>
+                          <span style={{ ...S.catVendorAmt, ...(v.counted ? null : S.catVendorMuted) }}>
+                            {!v.counted ? `${v.status} · not counted`
+                              : v.contracted === 0 ? "No total set"
+                              : v.owed > 0 ? `${fmt(v.owed)} owing`
+                              : "Paid in full"}
+                          </span>
+                          <span style={S.footerChevron}>›</span>
+                        </button>
+                      ))}
+                      <div style={S.catVendorHelp}>
+                        Only vendors marked <strong>Booked</strong> count toward your budget. Contracted totals aren't
+                        spending either — log a payment below to add it to this category.
+                      </div>
+                    </div>
+                  )}
                   <ExpenseList cat={cat} vendors={state.vendors}
                     onAdd={(exp) => addExpense(cat.id, exp)}
                     onEdit={(eid, patch) => editExpense(cat.id, eid, patch)}
@@ -1948,6 +2022,9 @@ function VendorsView({ state, update }) {
   const [openVendor, setOpenVendor] = useState(null);
   const [confirmDeleteVendor, setConfirmDeleteVendor] = useState(null);
   const [query, setQuery] = useState("");
+  // Which vendor is naming a brand-new budget category, and the name so far.
+  const [newCatFor, setNewCatFor] = useState(null);
+  const [newCatName, setNewCatName] = useState("");
 
   const booked = state.vendors.filter((v) => v.status === "Booked").length;
   const q = query.trim().toLowerCase();
@@ -1976,6 +2053,22 @@ function VendorsView({ state, update }) {
 
   const editVendor = (id, patch) =>
     update((s) => { const v = s.vendors.find((x) => x.id === id); if (v) Object.assign(v, patch); return s; });
+
+  // Create a budget category from here and file the vendor under it. It's the
+  // same categories list the Budget page renders, so both stay in step.
+  const addCategoryFor = (vendorId, name) => {
+    const clean = name.trim();
+    if (!clean) return;
+    update((s) => {
+      const id = uid();
+      s.categories.push({ id, name: clean, allocated: 0, expenses: [] });
+      const v = s.vendors.find((x) => x.id === vendorId);
+      if (v) v.categoryId = id;
+      return s;
+    });
+    setNewCatFor(null);
+    setNewCatName("");
+  };
 
   const deleteVendor = (id) =>
     update((s) => {
@@ -2093,10 +2186,27 @@ function VendorsView({ state, update }) {
                         onChange={(e) => editVendor(vendor.id, { type: e.target.value })} />
                     </Field>
                     <Field label="Budget category">
-                      <select style={S.fieldSelect} value={vendor.categoryId}
-                        onChange={(e) => editVendor(vendor.id, { categoryId: e.target.value })}>
+                      {/* Never show a category this vendor isn't actually filed
+                          under: an unknown id reads as "not linked yet". */}
+                      <select style={S.fieldSelect} value={cat ? vendor.categoryId : ""}
+                        onChange={(e) => {
+                          if (e.target.value === "__new") { setNewCatFor(vendor.id); setNewCatName(""); return; }
+                          editVendor(vendor.id, { categoryId: e.target.value });
+                        }}>
+                        {!cat && <option value="">Not linked yet — pick one</option>}
                         {state.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        <option value="__new">+ New category…</option>
                       </select>
+                      {newCatFor === vendor.id && (
+                        <div style={S.newCatRow}>
+                          <input style={{ ...S.fieldInput, flex: 1 }} autoFocus placeholder="Category name"
+                            value={newCatName}
+                            onChange={(e) => setNewCatName(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") addCategoryFor(vendor.id, newCatName); }} />
+                          <button style={S.newCatAdd} onClick={() => addCategoryFor(vendor.id, newCatName)}>Add</button>
+                          <button style={S.newCatCancel} onClick={() => { setNewCatFor(null); setNewCatName(""); }}>×</button>
+                        </div>
+                      )}
                     </Field>
                     <Field label="Status">
                       <select style={S.fieldSelect} value={vendor.status}
@@ -3723,6 +3833,19 @@ const S = {
   expAdd: { width: 40, height: 40, borderRadius: "50%", background: "#c98b94", color: "#fff", fontSize: 20, lineHeight: 1, flexShrink: 0, transition: "opacity 0.2s" },
 
   syncLine: { textAlign: "center", marginBottom: 16, fontSize: 12, color: "#c4aaa4" },
+  catVendorHint: { fontSize: 12, color: "#b58e87", marginTop: 4 },
+  catVendorBox: { background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 12, padding: "12px 12px 10px", marginTop: 14, display: "flex", flexDirection: "column", gap: 2 },
+  catVendorRow: { display: "flex", alignItems: "center", gap: 8, width: "100%", background: "none", border: "none", padding: "8px 2px", fontSize: 14, fontFamily: "inherit", color: "#3a2e2c", cursor: "pointer", textAlign: "left" },
+  catVendorName: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  catVendorAmt: { fontSize: 13, color: "#b07a72", whiteSpace: "nowrap" },
+  catVendorHelp: { fontSize: 11, color: "#c4aaa4", marginTop: 4, lineHeight: 1.4 },
+  catVendorMuted: { color: "#c4aaa4" },
+  deleteWarn: { background: "#fdf0f2", borderTop: "1px solid #f6dde2", padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
+  deleteWarnText: { flex: 1, minWidth: 180, fontSize: 13, color: "#9c5560", lineHeight: 1.45 },
+  deleteWarnBtns: { display: "flex", gap: 6, flexShrink: 0 },
+  newCatRow: { display: "flex", alignItems: "center", gap: 6, marginTop: 6 },
+  newCatAdd: { background: "#c98b94", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 14, fontWeight: 600, cursor: "pointer", flexShrink: 0 },
+  newCatCancel: { background: "#f7ece8", color: "#b07a72", border: "none", borderRadius: 8, width: 34, height: 34, fontSize: 18, lineHeight: 1, cursor: "pointer", flexShrink: 0 },
   footerBtn: { background: "none", border: "none", padding: 0, margin: 0, fontSize: 12, fontFamily: "inherit", color: "inherit", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 },
   footerChevron: { color: "#c4aaa4", fontSize: 14, lineHeight: 1 },
 
