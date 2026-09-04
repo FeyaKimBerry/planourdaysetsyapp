@@ -3316,7 +3316,12 @@ function buildPlannerHtml(state) {
     .map((v) => {
       const paid = vendorExpenses(state, v.id).reduce((s, e) => s + (Number(e.amount) || 0), 0);
       const contact = [v.phone, v.email].filter(Boolean).map(esc).join(" · ");
-      return `<tr><td><strong>${esc(v.name)}</strong>${v.type ? `<div class="muted">${esc(v.type)}</div>` : ""}${contact ? `<div class="sub">${contact}</div>` : ""}</td><td>${esc(v.status)}</td><td class="num">${esc(fmt(paid))}${v.contracted > 0 ? ` <span class="muted">/ ${esc(fmt(v.contracted))}</span>` : ""}</td></tr>`;
+      const owed = Math.max(0, (Number(v.contracted) || 0) - paid);
+      // What's still owed and when — the reason to print this page at all.
+      const due = v.dueDate
+        ? `<div class="sub">${owed > 0 ? `${esc(fmt(owed))} due ` : "Balance was due "}${esc(shortDate(v.dueDate))}</div>`
+        : "";
+      return `<tr><td><strong>${esc(v.name)}</strong>${v.type ? `<div class="muted">${esc(v.type)}</div>` : ""}${contact ? `<div class="sub">${contact}</div>` : ""}</td><td>${esc(v.status)}${due}</td><td class="num">${esc(fmt(paid))}${v.contracted > 0 ? ` <span class="muted">/ ${esc(fmt(v.contracted))}</span>` : ""}</td></tr>`;
     })
     .join("");
 
@@ -3351,6 +3356,18 @@ function buildPlannerHtml(state) {
   const section = (title, body, show = true) =>
     show ? `<section><h2>${title}</h2>${body}</section>` : "";
 
+  // ---- Style ----
+  // The page a couple hands their florist or stylist: the colours and the words
+  // for the day. Hex codes are printed so a supplier can match them exactly.
+  const palette = (state.palette || []).filter((c) => /^#[0-9a-f]{6}$/i.test(c));
+  const swatches = palette
+    .map((c) => `<div class="sw"><div class="chip" style="background:${esc(c)}"></div><div class="hex">${esc(c.toUpperCase())}</div></div>`)
+    .join("");
+  const styleWords = (state.styleWords || "").trim();
+  const styleHtml = `
+    ${styleWords ? `<div class="words">${esc(styleWords)}</div>` : ""}
+    ${swatches ? `<div class="palette">${swatches}</div>` : ""}`;
+
   // Everything lives inside a single .pod-pdf root with its styles scoped to
   // that class. That way the styling travels *with* the node — it survives
   // being cloned into the PDF renderer, and it can't leak into the live app
@@ -3366,6 +3383,11 @@ function buildPlannerHtml(state) {
   .pod-pdf .cover .venue { font-size: 14px; color: #8a6d68; margin-top: 4px; }
   .pod-pdf .vision { font-style: italic; color: #6b4a45; max-width: 460px; margin: 14px auto 0; }
   .pod-pdf section { margin-bottom: 26px; page-break-inside: avoid; }
+  .pod-pdf .words { font-size: 15px; font-style: italic; color: #6b4a45; margin-bottom: 14px; }
+  .pod-pdf .palette { display: flex; flex-wrap: wrap; gap: 14px; }
+  .pod-pdf .sw { text-align: center; }
+  .pod-pdf .chip { width: 74px; height: 52px; border-radius: 8px; border: 1px solid rgba(107,74,69,0.18); }
+  .pod-pdf .hex { font-size: 11px; color: #8a6d68; margin-top: 5px; letter-spacing: 0.04em; }
   .pod-pdf h2 { font-size: 19px; color: #b07a72; border-bottom: 1px solid #f0e2dd; padding-bottom: 5px; margin: 0 0 12px; }
   .pod-pdf h3 { font-size: 14px; margin: 0 0 6px; }
   .pod-pdf table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -3403,6 +3425,8 @@ function buildPlannerHtml(state) {
     </div>
     <table><thead><tr><th>Category</th><th class="num">Spent</th><th class="num">Allocated</th></tr></thead><tbody>${budgetRows}</tbody></table>`
   )}
+
+  ${section("Our style", styleHtml, !!(styleWords || swatches))}
 
   ${section("Checklist", checklistHtml)}
 
