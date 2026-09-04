@@ -130,6 +130,10 @@ function savePanel(name, open) {
   }
 }
 
+// The printed plan is laid out at this fixed width (see .pod-pdf in the export
+// stylesheet); the on-screen preview scales down to fit the phone.
+const PDF_PAGE_WIDTH = 760;
+
 // Ready-made colours for the style board: wedding palettes across the spectrum,
 // then neutrals. Anything else goes in by hex or the phone's colour wheel.
 const PICKER_COLORS = [
@@ -317,8 +321,13 @@ const fmt = (n) => {
   }).format(isNaN(n) ? 0 : n);
 };
 
+// Money that has actually left the account. "Spent" means spent: an expense
+// still marked Upcoming is a plan, not a payment, and belongs in `catUpcoming`.
 const catSpent = (cat) =>
-  cat.expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  cat.expenses.reduce((s, e) => s + (e.paid ? Number(e.amount) || 0 : 0), 0);
+
+const catUpcoming = (cat) =>
+  cat.expenses.reduce((s, e) => s + (e.paid ? 0 : Number(e.amount) || 0), 0);
 
 /* ---------- category colours ---------- */
 
@@ -425,6 +434,9 @@ const RSVP_STATUSES = ["Invited", "Yes", "No", "Maybe"];
 // A guest is on the real (invited) list unless explicitly staged as "planning".
 // Guests saved before the planning feature have no stage, so they count as invited.
 const isInvited = (g) => (g.stage || "invited") === "invited";
+
+// How many chairs one guest needs — themselves plus anyone they bring.
+const partySize = (g) => Math.max(1, Number(g?.party) || 1);
 
 function headcount(guests) {
   return guests
@@ -1382,7 +1394,9 @@ function upcomingItems(state, limit = 3) {
   const items = [];
 
   for (const v of state.vendors || []) {
-    if (!v.dueDate) continue;
+    // Only vendors you've actually booked — same rule as the budget, so a
+    // quote you're still weighing up doesn't chase you on the home page.
+    if (!v.dueDate || !countsInBudget(v)) continue;
     const paid = vendorExpenses(state, v.id).reduce((s, e) => s + (Number(e.amount) || 0), 0);
     const owed = Math.max(0, (Number(v.contracted) || 0) - paid);
     if (owed <= 0) continue;
@@ -1624,10 +1638,15 @@ function HomeView({ state, update, go }) {
       </div>
 
       {/* what needs doing next */}
-      {upcoming.length > 0 && (
-        <section style={S.nextUp}>
-          <div style={S.nextUpHead}>Next up</div>
-          {upcoming.map((it) => {
+      <section style={S.nextUp}>
+        <div style={S.nextUpHead}>Next up</div>
+        {upcoming.length === 0 ? (
+          <div style={S.nextUpEmpty}>
+            Nothing dated yet. Add a due date to a checklist task, or a balance due date to a
+            booked vendor, and whatever's soonest shows up here.
+          </div>
+        ) : (
+          upcoming.map((it) => {
             const color = it.days < 0 ? "#b0524a" : it.days <= 14 ? "#b8862f" : "#8a6d68";
             return (
               <button key={it.key} style={S.nextUpRow} onClick={() => go(it.tab)}>
@@ -1637,9 +1656,9 @@ function HomeView({ state, update, go }) {
                 <span style={S.footerChevron}>›</span>
               </button>
             );
-          })}
-        </section>
-      )}
+          })
+        )}
+      </section>
 
       {/* summary cards */}
       <div style={S.summaryGrid}>
@@ -1868,12 +1887,11 @@ function BudgetView({ state, update, go }) {
 
   const totalAllocated = state.categories.reduce((s, c) => s + (Number(c.allocated) || 0), 0);
   const totalSpent = state.categories.reduce((s, c) => s + catSpent(c), 0);
-  const remaining = state.total - totalSpent;
-  const upcoming = state.categories.reduce(
-    (s, c) => s + c.expenses.filter((e) => !e.paid).reduce((a, e) => a + (Number(e.amount) || 0), 0),
-    0
-  );
-  const overBudget = totalSpent > state.total;
+  const upcoming = state.categories.reduce((s, c) => s + catUpcoming(c), 0);
+  // Spent + Upcoming + Remaining = the whole budget, so the four figures add up
+  // and "Remaining" is money that isn't spoken for yet.
+  const remaining = state.total - totalSpent - upcoming;
+  const overBudget = totalSpent + upcoming > state.total;
 
   // What's contractually committed to vendors but not yet paid:
   // for each vendor, max(0, contracted - payments logged so far).
@@ -2037,7 +2055,10 @@ function BudgetView({ state, update, go }) {
         <DragSort ids={state.categories.map((c) => c.id)} onReorder={reorderCategory}>
           {({ handleProps, dragId }) => state.categories.map((cat) => {
           const spent = catSpent(cat);
-          const diff = cat.allocated - spent;
+          const catUp = catUpcoming(cat);
+          // "Left" counts what's promised as well as what's paid — otherwise a
+          // category with a big unpaid invoice looks like it has room.
+          const diff = cat.allocated - spent - catUp;
           const isOpen = openCat === cat.id;
           const dragging = dragId === String(cat.id);
           // Vendors filed here. Their contracted totals aren't spending, so they
@@ -2061,21 +2082,25 @@ function BudgetView({ state, update, go }) {
                   <div style={S.catNumbers}>
                     <span style={S.catSpent}>{fmt(spent)}</span>
                     <span style={S.catOf}>of {fmt(cat.allocated)}</span>
+                    {catUp > 0 && <span style={S.catUpcoming}>+{fmt(catUp)} upcoming</span>}
                     <span style={{ ...S.diffPill, background: diff < 0 ? "#f7dde2" : "#e4eede", color: diff < 0 ? "#c2566b" : "#5c7a59" }}>
                       {diff < 0 ? `${fmt(-diff)} over` : `${fmt(diff)} left`}
                     </span>
                   </div>
                   {/* How full this category is: spent against its allocation,
                       in its own colour so it ties back to the donut. */}
-                  {(cat.allocated > 0 || spent > 0) && (
-                    <div style={S.catBar}>
-                      <div style={{
-                        ...S.catBarFill,
-                        width: `${cat.allocated > 0 ? Math.min(100, (spent / cat.allocated) * 100) : 100}%`,
-                        background: diff < 0 ? "#c2566b" : (cat.color || CAT_COLORS[0]),
-                      }} />
-                    </div>
-                  )}
+                  {(cat.allocated > 0 || spent > 0 || catUp > 0) && (() => {
+                    // Solid = paid, faded = promised but not paid yet.
+                    const base = cat.allocated > 0 ? cat.allocated : spent + catUp;
+                    const pct = (n) => (base > 0 ? Math.min(100, (n / base) * 100) : 0);
+                    const color = diff < 0 ? "#c2566b" : (cat.color || CAT_COLORS[0]);
+                    return (
+                      <div style={S.catBar}>
+                        <div style={{ ...S.catBarFill, width: `${pct(spent)}%`, background: color }} />
+                        <div style={{ ...S.catBarFill, width: `${pct(catUp)}%`, background: color, opacity: 0.35 }} />
+                      </div>
+                    );
+                  })()}
                   {catVendors.length > 0 && (
                     <div style={S.catVendorHint}>
                       {catVendors.length} vendor{catVendors.length > 1 ? "s" : ""}
@@ -3257,7 +3282,8 @@ function buildPlannerHtml(state) {
 
   // ---- Budget ----
   const totalSpent = state.categories.reduce((s, c) => s + catSpent(c), 0);
-  const remaining = state.total - totalSpent;
+  const totalUpcoming = state.categories.reduce((s, c) => s + catUpcoming(c), 0);
+  const remaining = state.total - totalSpent - totalUpcoming;
   const budgetRows = state.categories
     .map((c) => {
       const spent = catSpent(c);
@@ -3305,11 +3331,20 @@ function buildPlannerHtml(state) {
     .join("");
 
   // ---- Seating ----
-  const guestName = (id) => (state.guests || []).find((g) => g.id === id)?.name || "Unnamed";
+  const guestAt = (id) => (state.guests || []).find((g) => g.id === id);
   const seatingHtml = (state.tables || [])
     .map((t) => {
-      const seated = (t.seated || []).map((gid) => `<li>${esc(guestName(gid))}</li>`).join("");
-      return `<div class="block"><h3>${esc(t.name)} <span class="muted">(${(t.seated || []).length}/${t.capacity})</span></h3><ul>${seated || '<li class="muted">Empty</li>'}</ul></div>`;
+      const ids = t.seated || [];
+      // Chairs used, so a "+1" counts twice — same rule as the Seating tab.
+      const used = ids.reduce((n, gid) => n + partySize(guestAt(gid)), 0);
+      const seated = ids
+        .map((gid) => {
+          const g = guestAt(gid);
+          const extra = partySize(g) > 1 ? ` <span class="muted">+${partySize(g) - 1}</span>` : "";
+          return `<li>${esc(g?.name || "Unnamed")}${extra}</li>`;
+        })
+        .join("");
+      return `<div class="block"><h3>${esc(t.name)} <span class="muted">(${used}/${t.capacity})</span></h3><ul>${seated || '<li class="muted">Empty</li>'}</ul></div>`;
     })
     .join("");
 
@@ -3363,6 +3398,7 @@ function buildPlannerHtml(state) {
     `<div class="summary">
       <div class="stat"><div class="big">${esc(fmt(state.total))}</div><div class="lbl">Total</div></div>
       <div class="stat"><div class="big">${esc(fmt(totalSpent))}</div><div class="lbl">Spent</div></div>
+      <div class="stat"><div class="big">${esc(fmt(totalUpcoming))}</div><div class="lbl">Upcoming</div></div>
       <div class="stat"><div class="big">${esc(fmt(remaining))}</div><div class="lbl">Remaining</div></div>
     </div>
     <table><thead><tr><th>Category</th><th class="num">Spent</th><th class="num">Allocated</th></tr></thead><tbody>${budgetRows}</tbody></table>`
@@ -3428,10 +3464,41 @@ function SettingsView({ state, update, setState, go, connected, onSignOut, sync 
   const [pdfBusy, setPdfBusy] = useState(false);
   const previewRef = useRef(null);
 
+  // Fit the fixed-width page into whatever room the modal has.
+  const pdfScrollRef = useRef(null);
+  const pdfScaleRef = useRef(null);
+  const [pdfScale, setPdfScale] = useState(1);
+  const [pdfHeight, setPdfHeight] = useState(0);
+  useEffect(() => {
+    if (!showPdfPreview) return;
+    const fit = () => {
+      const box = pdfScrollRef.current;
+      const page = previewRef.current?.querySelector(".pod-pdf");
+      if (!box) return;
+      const room = box.clientWidth;
+      setPdfScale(Math.min(1, room / PDF_PAGE_WIDTH));
+      if (page) setPdfHeight(page.offsetHeight);
+    };
+    // One frame later, so the preview HTML has laid out and has a height.
+    const id = setTimeout(fit, 0);
+    window.addEventListener("resize", fit);
+    return () => { clearTimeout(id); window.removeEventListener("resize", fit); };
+  }, [showPdfPreview, state]);
+
   const savePDF = async () => {
     const node = previewRef.current?.querySelector(".pod-pdf");
     if (!node || pdfBusy) return;
     setPdfBusy(true);
+    // The preview is scaled down to fit the screen; the saved file must not be.
+    // Drop the scale for the capture, then put it back.
+    const scaler = pdfScaleRef.current;
+    const savedTransform = scaler ? scaler.style.transform : "";
+    if (scaler) {
+      scaler.style.transform = "none";
+      // A timer, not requestAnimationFrame: rAF never fires while the tab is in
+      // the background, which would leave the save hanging on "Saving…".
+      await new Promise((r) => setTimeout(r, 60));
+    }
     try {
       const base =
         (state.partner1 && state.partner2
@@ -3458,6 +3525,7 @@ function SettingsView({ state, update, setState, go, connected, onSignOut, sync 
     } catch (e) {
       alert("Sorry — something went wrong creating the PDF. Please try again.");
     } finally {
+      if (scaler) scaler.style.transform = savedTransform;
       setPdfBusy(false);
     }
   };
@@ -3574,8 +3642,15 @@ function SettingsView({ state, update, setState, go, connected, onSignOut, sync 
               </div>
               <button style={S.pdfClose} onClick={() => !pdfBusy && setShowPdfPreview(false)} aria-label="Close preview">×</button>
             </div>
-            <div style={S.pdfScroll}>
-              <div ref={previewRef} dangerouslySetInnerHTML={{ __html: buildPlannerHtml(state) }} />
+            {/* The plan is laid out at a fixed page width, so on a phone it's
+                scaled down to fit rather than needing a sideways drag. The node
+                itself keeps its real size — savePDF renders that, not this. */}
+            <div style={S.pdfScroll} ref={pdfScrollRef}>
+              <div style={{ width: PDF_PAGE_WIDTH * pdfScale, height: pdfHeight ? pdfHeight * pdfScale : undefined, overflow: "hidden" }}>
+                <div ref={pdfScaleRef} style={{ transform: `scale(${pdfScale})`, transformOrigin: "top left", width: PDF_PAGE_WIDTH }}>
+                  <div ref={previewRef} dangerouslySetInnerHTML={{ __html: buildPlannerHtml(state) }} />
+                </div>
+              </div>
             </div>
             <div style={S.pdfActions}>
               <button style={{ ...S.settingBtn, ...S.settingBtnOutline, flex: 1 }} disabled={pdfBusy}
@@ -3703,6 +3778,10 @@ function SeatingView({ state, update }) {
     });
 
   const guestById = (id) => guests.find((g) => g.id === id);
+  // Seats a table actually uses: every guest counts for their whole party, so a
+  // "+1" takes two chairs. Capacity is about chairs, not names on a list.
+  const seatsUsed = (t) =>
+    (t.seated || []).reduce((n, gid) => n + partySize(guestById(gid)), 0);
   const rsvpDot = (g) =>
     g.rsvp === "Yes" ? "#5c7a59" : g.rsvp === "No" ? "#c2566b" : g.rsvp === "Maybe" ? "#a8862f" : "#b07a72";
 
@@ -3752,7 +3831,8 @@ function SeatingView({ state, update }) {
       {/* TABLES */}
       <div style={S.tableGrid}>
         {tables.map((t) => {
-          const over = t.seated.length;
+          // Chairs, not guest records: a guest bringing a +1 needs two seats.
+          const over = seatsUsed(t);
           const full = over > t.capacity;
           const armed = !!selectedGuest; // a guest is staged, so tables are tap targets
           return (
@@ -3782,7 +3862,7 @@ function SeatingView({ state, update }) {
                   return (
                     <span key={gid} style={S.seatedChip} onClick={(e) => { e.stopPropagation(); assign(gid, null); }}>
                       <span style={{ ...S.dot, background: rsvpDot(g) }} />
-                      {g.name || "Unnamed"} <span style={S.chipX}>×</span>
+                      {g.name || "Unnamed"}{partySize(g) > 1 ? ` +${partySize(g) - 1}` : ""} <span style={S.chipX}>×</span>
                     </span>
                   );
                 })}
@@ -4332,6 +4412,7 @@ const S = {
   nextUpHead: { fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b58e87", marginBottom: 4 },
   nextUpRow: { display: "flex", alignItems: "center", gap: 9, width: "100%", background: "none", border: "none", padding: "9px 0", fontSize: 14, fontFamily: "inherit", color: "#3a2e2c", textAlign: "left", cursor: "pointer" },
   nextUpDot: { width: 8, height: 8, borderRadius: "50%", flex: "none" },
+  nextUpEmpty: { fontSize: 13, color: "#b58e87", lineHeight: 1.5, padding: "4px 0 8px" },
   // Wraps rather than truncating: the amount matters as much as the name.
   nextUpTitle: { flex: 1, minWidth: 0, lineHeight: 1.35 },
   nextUpWhen: { fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" },
@@ -4355,8 +4436,9 @@ const S = {
   donutToggle: { display: "flex", justifyContent: "center", gap: 4, background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 99, padding: 3, width: "fit-content", margin: "4px auto 0" },
   donutToggleBtn: { background: "none", border: "none", borderRadius: 99, padding: "6px 16px", fontSize: 13, fontFamily: "inherit", color: "#b58e87", cursor: "pointer" },
   donutToggleOn: { background: "#fff", color: "#6b4a45", fontWeight: 600, boxShadow: "0 2px 8px -4px rgba(107,74,69,0.45)" },
-  catBar: { height: 5, borderRadius: 99, background: "#f4e8e4", overflow: "hidden", marginTop: 8 },
-  catBarFill: { height: "100%", borderRadius: 99 },
+  catBar: { height: 5, borderRadius: 99, background: "#f4e8e4", overflow: "hidden", marginTop: 8, display: "flex" },
+  catBarFill: { height: "100%" },
+  catUpcoming: { fontSize: 12, color: "#a8862f" },
   catDot: { display: "inline-block", width: 9, height: 9, borderRadius: "50%", marginRight: 8, verticalAlign: "middle", flex: "none" },
   dueLine: { fontSize: 12, marginTop: 4, fontWeight: 600 },
   owedDue: { display: "block", fontSize: 11, marginTop: 2, fontWeight: 600 },
