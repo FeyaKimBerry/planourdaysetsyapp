@@ -360,15 +360,21 @@ const SAVE_TONE_COLOR = {
   error: "#b0524a",  // sync error
 };
 
-function SaveIndicator({ saveState }) {
-  const { label, tone } = saveStateLabel(saveState);
+// A coloured dot + label — the same shape whether the status comes from the
+// sync state machine or from a plain local-only save.
+function StatusDot({ tone, children }) {
   const color = SAVE_TONE_COLOR[tone] || "#7a655f";
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
       <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flex: "none" }} />
-      <span>{label}</span>
+      <span>{children}</span>
     </span>
   );
+}
+
+function SaveIndicator({ saveState }) {
+  const { label, tone } = saveStateLabel(saveState);
+  return <StatusDot tone={tone}>{label}</StatusDot>;
 }
 
 // Shown when the Google session lapsed mid-use (NEEDS_RECONNECT). The
@@ -379,8 +385,8 @@ function ReconnectBanner({ busy, onReconnect }) {
     <div
       style={{
         display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-        background: "#fbecd8", borderBottom: "1px solid #f0d9b3",
-        color: "#7a5a1e", padding: "68px 16px 12px", fontSize: 14,
+        background: "#fbecd8", border: "1px solid #f0d9b3", borderRadius: 14,
+        color: "#7a5a1e", margin: "70px 16px 0", padding: "12px 14px", fontSize: 14,
       }}
     >
       <span style={{ flex: 1, minWidth: 180 }}>
@@ -699,6 +705,11 @@ export default function WeddingPlanner() {
 
   const pushTimer = useRef(null);
   const didMount = useRef(false);
+  // Brief "Saved on this device" pill for local-only users, with a nudge to
+  // turn on sync. Auto-hides; never overlaps the logo or the header buttons.
+  const [savedPill, setSavedPill] = useState(false);
+  const pillTimer = useRef(null);
+  useEffect(() => () => { if (pillTimer.current) clearTimeout(pillTimer.current); }, []);
 
   const recordSync = useCallback(() => {
     const t = Date.now();
@@ -745,10 +756,20 @@ export default function WeddingPlanner() {
   // `state` already carries its edit-time updatedAt/rev (stamped by the mutators
   // below), so reconciliation compares real edit times, not save times.
   useEffect(() => {
-    setStorageOk(storage.save(state)); // no-op re-render unless it changed
+    const savedOk = storage.save(state);
+    setStorageOk(savedOk); // no-op re-render unless it changed
 
     if (!didMount.current) { didMount.current = true; return; }
-    if (!connected) return; // local-only intent never pushes
+    if (!connected) {
+      // Local-only: confirm the edit landed on this device and point to sync.
+      // Rapid edits reset the timer, so typing shows one pill, not a flicker.
+      if (savedOk && intent === "local") {
+        setSavedPill(true);
+        if (pillTimer.current) clearTimeout(pillTimer.current);
+        pillTimer.current = setTimeout(() => setSavedPill(false), 4000);
+      }
+      return; // local-only intent never pushes
+    }
 
     // The edit is now unsaved to Drive. Rapid edits coalesce: each
     // one resets the debounce timer, so only one push runs (~2.5s).
@@ -957,18 +978,18 @@ export default function WeddingPlanner() {
         <ReconnectBanner busy={reconnecting} onReconnect={handleReconnect} />
       )}
 
-      <div style={S.scroll}>
-        {tab === "home" && <HomeView state={state} update={update} go={goTab} />}
-        {tab === "budget" && <BudgetView state={state} update={update} />}
-        {tab === "checklist" && <ChecklistView state={state} update={update} />}
-        {tab === "vendors" && <VendorsView state={state} update={update} />}
-        {tab === "guests" && <GuestsView state={state} update={update} />}
-        {tab === "seating" && <SeatingView state={state} update={update} />}
-        {tab === "venues" && <VenueComparisonView state={state} update={update} />}
-        {tab === "settings" && <SettingsView state={state} update={update} setState={setStateStamped} go={goTab} connected={connected} onSignOut={handleSignOut}
-          sync={{ intent, syncState, saveState, lastSync, busy: reconnecting, onSwitchToLocal: switchToLocal, onSwitchToSync: switchToSync, onReconnect: handleReconnect }} />}
+      {savedPill && (
+        <button style={S.savedPill} onClick={goToSyncSettings}>
+          <span style={S.savedPillDot} />
+          <span style={S.savedPillLabel}>Saved on this device</span>
+          <span style={S.savedPillCta}>Sync across devices ›</span>
+        </button>
+      )}
 
-        <footer style={S.footer}>
+      <div style={S.scroll}>
+        {/* Sync status sits above the content, under the logo row, so it's the
+            first thing seen — and never overlaps the logo or header buttons. */}
+        <div style={S.syncLine}>
           {(() => {
             const content =
               intent === "sync" ? (
@@ -981,7 +1002,8 @@ export default function WeddingPlanner() {
               ) : !storageOk ? (
                 <SaveIndicator saveState={{ storageError: true }} />
               ) : PERSISTS ? (
-                "Saved on this device · sign in to sync across devices"
+                // Local-only: the edit is safely on this device, so green.
+                <StatusDot tone="ok">Saved on this device · sign in to sync across devices</StatusDot>
               ) : null;
             // Preview mode: nothing actionable, leave as plain text.
             if (content === null) return "Preview mode · data won't persist here, but saving works in the deployed app";
@@ -994,7 +1016,17 @@ export default function WeddingPlanner() {
               </button>
             );
           })()}
-        </footer>
+        </div>
+
+        {tab === "home" && <HomeView state={state} update={update} go={goTab} />}
+        {tab === "budget" && <BudgetView state={state} update={update} />}
+        {tab === "checklist" && <ChecklistView state={state} update={update} />}
+        {tab === "vendors" && <VendorsView state={state} update={update} />}
+        {tab === "guests" && <GuestsView state={state} update={update} />}
+        {tab === "seating" && <SeatingView state={state} update={update} />}
+        {tab === "venues" && <VenueComparisonView state={state} update={update} />}
+        {tab === "settings" && <SettingsView state={state} update={update} setState={setStateStamped} go={goTab} connected={connected} onSignOut={handleSignOut}
+          sync={{ intent, syncState, saveState, lastSync, busy: reconnecting, onSwitchToLocal: switchToLocal, onSwitchToSync: switchToSync, onReconnect: handleReconnect }} />}
       </div>
 
       <nav style={S.nav}>
@@ -3690,7 +3722,7 @@ const S = {
   addTaskInput: { flex: 1, fontSize: 15, padding: "11px 12px", borderRadius: 10, background: "#fbf2ef", color: "#3a2e2c", border: "1px dashed #e3c4bd" },
   expAdd: { width: 40, height: 40, borderRadius: "50%", background: "#c98b94", color: "#fff", fontSize: 20, lineHeight: 1, flexShrink: 0, transition: "opacity 0.2s" },
 
-  footer: { textAlign: "center", marginTop: 28, fontSize: 12, color: "#c4aaa4" },
+  syncLine: { textAlign: "center", marginBottom: 16, fontSize: 12, color: "#c4aaa4" },
   footerBtn: { background: "none", border: "none", padding: 0, margin: 0, fontSize: 12, fontFamily: "inherit", color: "inherit", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 },
   footerChevron: { color: "#c4aaa4", fontSize: 14, lineHeight: 1 },
 
@@ -3767,6 +3799,12 @@ const S = {
   traySectionHead: { fontSize: 12, fontWeight: 600, color: "#b07a72", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 7 },
   traySectionCount: { background: "#f4e8e4", color: "#b07a72", fontSize: 11, padding: "1px 8px", borderRadius: 99, fontWeight: 600 },
   guestChip: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 14, border: "1.5px solid #ead7d1", borderRadius: 99, padding: "8px 12px", cursor: "pointer", userSelect: "none", transition: "background 0.12s, color 0.12s, border-color 0.12s" },
+  // left/right + margin auto (not left:50%) so the pill can use the full width
+  // and stays on one line on a phone.
+  savedPill: { position: "fixed", left: 12, right: 12, bottom: 92, margin: "0 auto", width: "fit-content", maxWidth: "calc(100% - 24px)", display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #f0e2dd", borderRadius: 99, padding: "8px 14px", fontSize: 13, fontFamily: "inherit", color: "#6b4a45", cursor: "pointer", zIndex: 40, boxShadow: "0 10px 26px -12px rgba(107,74,69,0.5)" },
+  savedPillDot: { width: 7, height: 7, borderRadius: "50%", background: "#5c7a59", flex: "none" },
+  savedPillLabel: { whiteSpace: "nowrap" },
+  savedPillCta: { color: "#c98b94", fontWeight: 600, whiteSpace: "nowrap" },
   seatingBanner: { position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 92, background: "#6b4a45", color: "#fff", fontSize: 14, padding: "12px 18px", borderRadius: 99, display: "flex", alignItems: "center", gap: 14, zIndex: 50, boxShadow: "0 12px 32px -12px rgba(80,50,45,0.7)", maxWidth: "92%" },
   seatingCancel: { background: "rgba(255,255,255,0.18)", color: "#fff", fontSize: 13, padding: "5px 12px", borderRadius: 99, flexShrink: 0 },
 
