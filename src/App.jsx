@@ -1317,6 +1317,12 @@ function HomeView({ state, update, go }) {
     ? new Date(state.weddingDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })
     : "";
 
+  // The Venue box is filled by choosing a venue on the Venues tab, so tapping it
+  // takes you there rather than editing the name in two places.
+  const venues = state.venues || [];
+  const chosenVenue = venues.find((v) => v.chosen);
+  const venueValue = state.venue || chosenVenue?.name || "";
+
   return (
     <>
       {/* hero photo */}
@@ -1369,7 +1375,12 @@ function HomeView({ state, update, go }) {
             <input ref={dateRef} type="date" style={S.fieldInput} value={state.weddingDate} onChange={(e) => set({ weddingDate: e.target.value })} />
           </Field>
           <Field label="Venue">
-            <input style={S.fieldInput} placeholder="Where?" value={state.venue} onChange={(e) => set({ venue: e.target.value })} />
+            <button style={S.venueLink} onClick={() => go("venues")}>
+              <span style={venueValue ? undefined : S.venueLinkEmpty}>
+                {venueValue || "Choose a venue"}
+              </span>
+              <span style={S.venueLinkChevron}>›</span>
+            </button>
           </Field>
         </div>
         <div style={{ marginTop: 12 }}>
@@ -3263,6 +3274,69 @@ function SeatingView({ state, update }) {
    VENUE COMPARISON VIEW
    ============================================================ */
 
+/* Choosing a venue: tick the venue, fill state.venue, and keep the auto-created
+   Venue vendor + budget expense in sync. Mutates and returns s. */
+function applyChooseVenue(s, id) {
+  const v = s.venues.find((x) => x.id === id);
+  if (!v) return s;
+
+  // Unmark all venues
+  for (const x of s.venues) x.chosen = false;
+  v.chosen = true;
+  s.venue = v.name;
+
+  // Remove any previously auto-created venue vendor + its expenses
+  const old = s.vendors.find((x) => x.fromVenue);
+  if (old) {
+    for (const c of s.categories)
+      c.expenses = c.expenses.filter((e) => e.vendorId !== old.id);
+    s.vendors = s.vendors.filter((x) => x.id !== old.id);
+  }
+
+  // Create new vendor
+  const vendorId = uid();
+  s.vendors.push({
+    id: vendorId,
+    name: v.name,
+    type: "Venue",
+    categoryId: s.categories.find((c) => c.id === "venue")?.id || s.categories[0]?.id || "",
+    phone: "",
+    email: "",
+    status: "Booked",
+    notes: v.notes || "",
+    contracted: v.price || 0,
+    fromVenue: true,
+  });
+
+  // Add upcoming expense in Venue & Rentals category
+  const cat = s.categories.find((c) => c.id === "venue") || s.categories[0];
+  if (cat) {
+    cat.expenses.push({
+      id: uid(),
+      vendorId,
+      desc: v.name,
+      amount: v.price || 0,
+      date: new Date().toISOString().slice(0, 10),
+      paid: false,
+    });
+  }
+
+  return s;
+}
+
+/* Undo the above: untick every venue and remove the auto-created vendor/expense. */
+function applyUnchooseVenue(s) {
+  for (const v of s.venues || []) v.chosen = false;
+  s.venue = "";
+  const old = s.vendors.find((x) => x.fromVenue);
+  if (old) {
+    for (const c of s.categories)
+      c.expenses = c.expenses.filter((e) => e.vendorId !== old.id);
+    s.vendors = s.vendors.filter((x) => x.id !== old.id);
+  }
+  return s;
+}
+
 function VenueComparisonView({ state, update }) {
   const [openVenue, setOpenVenue] = useState(null);
   const [confirmDeleteVenue, setConfirmDeleteVenue] = useState(null);
@@ -3283,68 +3357,9 @@ function VenueComparisonView({ state, update }) {
   const deleteVenue = (id) =>
     update((s) => { s.venues = s.venues.filter((x) => x.id !== id); return s; });
 
-  const chooseVenue = (id) =>
-    update((s) => {
-      const v = s.venues.find((x) => x.id === id);
-      if (!v) return s;
+  const chooseVenue = (id) => update((s) => applyChooseVenue(s, id));
 
-      // Unmark all venues
-      for (const x of s.venues) x.chosen = false;
-      v.chosen = true;
-      s.venue = v.name;
-
-      // Remove any previously auto-created venue vendor + its expenses
-      const old = s.vendors.find((x) => x.fromVenue);
-      if (old) {
-        for (const c of s.categories)
-          c.expenses = c.expenses.filter((e) => e.vendorId !== old.id);
-        s.vendors = s.vendors.filter((x) => x.id !== old.id);
-      }
-
-      // Create new vendor
-      const vendorId = uid();
-      s.vendors.push({
-        id: vendorId,
-        name: v.name,
-        type: "Venue",
-        categoryId: s.categories.find((c) => c.id === "venue")?.id || s.categories[0]?.id || "",
-        phone: "",
-        email: "",
-        status: "Booked",
-        notes: v.notes || "",
-        contracted: v.price || 0,
-        fromVenue: true,
-      });
-
-      // Add upcoming expense in Venue & Rentals category
-      const cat = s.categories.find((c) => c.id === "venue") || s.categories[0];
-      if (cat) {
-        cat.expenses.push({
-          id: uid(),
-          vendorId,
-          desc: v.name,
-          amount: v.price || 0,
-          date: new Date().toISOString().slice(0, 10),
-          paid: false,
-        });
-      }
-
-      return s;
-    });
-
-  const unchoose = () =>
-    update((s) => {
-      for (const v of s.venues) v.chosen = false;
-      s.venue = "";
-      // Remove auto-created vendor + expenses
-      const old = s.vendors.find((x) => x.fromVenue);
-      if (old) {
-        for (const c of s.categories)
-          c.expenses = c.expenses.filter((e) => e.vendorId !== old.id);
-        s.vendors = s.vendors.filter((x) => x.id !== old.id);
-      }
-      return s;
-    });
+  const unchoose = () => update((s) => applyUnchooseVenue(s));
 
   const shortlisted = venues.filter((v) => v.shortlisted || v.chosen);
   const tableVenues = shortlisted.length > 0 ? shortlisted : venues.slice(0, 4);
@@ -3789,6 +3804,9 @@ const S = {
   vendorFields: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12, paddingTop: 14 },
   field: { display: "flex", flexDirection: "column", gap: 5 },
   fieldInput: { width: "100%", minWidth: 0, boxSizing: "border-box", fontSize: 15, padding: "9px 11px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd" },
+  venueLink: { width: "100%", minWidth: 0, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, textAlign: "left", fontSize: 15, padding: "9px 11px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd", cursor: "pointer" },
+  venueLinkEmpty: { color: "#b58e87" },
+  venueLinkChevron: { color: "#c98b94", fontSize: 20, lineHeight: 1, flexShrink: 0 },
   fieldSelect: { width: "100%", minWidth: 0, boxSizing: "border-box", fontSize: 15, padding: "9px 11px", borderRadius: 8, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd", fontFamily: "'Outfit', sans-serif" },
   vendorPaidLine: { fontSize: 13, color: "#b58e87", marginTop: 8, textAlign: "center" },
   payLabel: { fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b58e87", marginTop: 18, marginBottom: 10 },
