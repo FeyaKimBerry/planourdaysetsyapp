@@ -84,6 +84,27 @@ const PRESET_CATEGORIES = [
   { id: "misc", name: "Miscellaneous", pct: 0.03 },
 ];
 
+// Common wedding costs offered as one-tap additions on the Budget page. The
+// preset categories are included so they can be added back if deleted; anything
+// already in the plan (matched by name) is filtered out of the suggestions.
+const SUGGESTED_CATEGORIES = [
+  ...PRESET_CATEGORIES.map((c) => c.name),
+  "Ceremony & Celebrant",
+  "Cake & Desserts",
+  "Hair & Makeup",
+  "Rings",
+  "Transport",
+  "Accommodation",
+  "Wedding Planner",
+  "Photo Booth",
+  "Bridal Party",
+  "Gifts & Favours",
+  "Marriage Licence",
+  "Honeymoon",
+  "Tips & Gratuities",
+  "Contingency",
+];
+
 // Time buckets for the checklist, ordered far-out -> the day -> after.
 const CHECKLIST_BUCKETS = [
   {
@@ -1530,6 +1551,11 @@ function BudgetView({ state, update, go }) {
 
   const setTotal = (v) => update((s) => { s.total = Math.max(0, Number(v) || 0); return s; });
   const addCategory = () => update((s) => { s.categories.push({ id: uid(), name: "New Category", allocated: 0, expenses: [] }); return s; });
+  const addNamedCategory = (name) => update((s) => { s.categories.push({ id: uid(), name, allocated: 0, expenses: [] }); return s; });
+  // Anything they already have — however it got there — drops off the list.
+  const suggestions = SUGGESTED_CATEGORIES.filter(
+    (n) => !state.categories.some((c) => (c.name || "").trim().toLowerCase() === n.toLowerCase())
+  );
   const editCategory = (id, patch) => update((s) => { const c = s.categories.find((x) => x.id === id); if (c) Object.assign(c, patch); return s; });
   const deleteCategory = (id) => update((s) => {
     s.categories = s.categories.filter((x) => x.id !== id);
@@ -1718,6 +1744,20 @@ function BudgetView({ state, update, go }) {
         })}
         </DragSort>
         <button style={S.addCat} onClick={addCategory}>+ Add category</button>
+
+        {suggestions.length > 0 && (
+          <div style={S.suggestBox}>
+            <label style={S.smallLabel}>Suggested categories</label>
+            <div style={S.suggestHint}>Common wedding costs — tap one to add it.</div>
+            <div style={S.suggestWrap}>
+              {suggestions.map((name) => (
+                <button key={name} style={S.suggestChip} onClick={() => addNamedCategory(name)}>
+                  + {name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
     </>
   );
@@ -3843,6 +3883,10 @@ const S = {
   deleteWarn: { background: "#fdf0f2", borderTop: "1px solid #f6dde2", padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
   deleteWarnText: { flex: 1, minWidth: 180, fontSize: 13, color: "#9c5560", lineHeight: 1.45 },
   deleteWarnBtns: { display: "flex", gap: 6, flexShrink: 0 },
+  suggestBox: { marginTop: 18 },
+  suggestHint: { fontSize: 12, color: "#c4aaa4", margin: "2px 0 10px" },
+  suggestWrap: { display: "flex", flexWrap: "wrap", gap: 8 },
+  suggestChip: { background: "#fff", border: "1px solid #f0e2dd", borderRadius: 99, padding: "8px 13px", fontSize: 13, fontFamily: "inherit", color: "#8a6d68", cursor: "pointer" },
   newCatRow: { display: "flex", alignItems: "center", gap: 6, marginTop: 6 },
   newCatAdd: { background: "#c98b94", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 14, fontWeight: 600, cursor: "pointer", flexShrink: 0 },
   newCatCancel: { background: "#f7ece8", color: "#b07a72", border: "none", borderRadius: 8, width: 34, height: 34, fontSize: 18, lineHeight: 1, cursor: "pointer", flexShrink: 0 },
