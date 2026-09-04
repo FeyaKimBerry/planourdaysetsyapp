@@ -1321,6 +1321,50 @@ function dueTone(dateStr) {
   return { tone: "ok", label: `Balance due ${shortDate(dateStr)}` };
 }
 
+// "overdue by 3 days" / "today" / "in 9 days" / "2 Mar 2027" — how far off a
+// dated thing is, in the fewest words.
+function whenLabel(dateStr) {
+  const days = daysUntil(dateStr);
+  if (days === null) return "";
+  if (days < 0) return `overdue by ${-days} day${days === -1 ? "" : "s"}`;
+  if (days === 0) return "today";
+  if (days === 1) return "tomorrow";
+  if (days <= 30) return `in ${days} days`;
+  return shortDate(dateStr);
+}
+
+// The dated things a couple actually has to act on, soonest first: vendor
+// balances still owed, and checklist tasks that aren't ticked off.
+function upcomingItems(state, limit = 3) {
+  const items = [];
+
+  for (const v of state.vendors || []) {
+    if (!v.dueDate) continue;
+    const paid = vendorExpenses(state, v.id).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    const owed = Math.max(0, (Number(v.contracted) || 0) - paid);
+    if (owed <= 0) continue;
+    items.push({
+      key: `v-${v.id}`,
+      tab: "vendors",
+      title: `${v.name || "Vendor"} — ${fmt(owed)} due`,
+      date: v.dueDate,
+    });
+  }
+
+  for (const b of state.checklist || []) {
+    for (const t of b.tasks || []) {
+      if (t.done || !t.due) continue;
+      items.push({ key: `t-${t.id}`, tab: "checklist", title: t.name, date: t.due });
+    }
+  }
+
+  return items
+    .map((it) => ({ ...it, days: daysUntil(it.date) }))
+    .filter((it) => it.days !== null)
+    .sort((a, b) => a.days - b.days)
+    .slice(0, limit);
+}
+
 function daysUntil(dateStr) {
   if (!dateStr) return null;
   const today = new Date();
@@ -1445,6 +1489,13 @@ function HomeView({ state, update, go }) {
     ? new Date(state.weddingDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })
     : "";
 
+  // Names, date and venue get filled once, so they fold away — unless the plan
+  // is still blank, in which case there's nothing else to do first.
+  const [showDetails, setShowDetails] = useState(
+    () => !(state.partner1 || state.partner2) || !state.weddingDate
+  );
+  const upcoming = upcomingItems(state, 3);
+
   // The Venue box is filled by choosing a venue on the Venues tab, so tapping it
   // takes you there rather than editing the name in two places.
   const venues = state.venues || [];
@@ -1490,35 +1541,35 @@ function HomeView({ state, update, go }) {
         </button>
       </div>
 
-      {/* couple profile editor */}
-      <section style={S.dashboard}>
-        <div style={S.profileGrid}>
-          <Field label="Partner 1">
-            <input style={S.fieldInput} placeholder="Name" value={state.partner1} onChange={(e) => set({ partner1: e.target.value })} />
-          </Field>
-          <Field label="Partner 2">
-            <input style={S.fieldInput} placeholder="Name" value={state.partner2} onChange={(e) => set({ partner2: e.target.value })} />
-          </Field>
-          <Field label="Wedding date">
-            <input ref={dateRef} type="date" style={S.fieldInput} value={state.weddingDate} onChange={(e) => set({ weddingDate: e.target.value })} />
-          </Field>
-          <Field label="Venue">
-            <button style={S.venueLink} onClick={() => go("venues")}>
-              <span style={venueValue ? undefined : S.venueLinkEmpty}>
-                {venueValue || "Choose a venue"}
-              </span>
-              <span style={S.venueLinkChevron}>›</span>
-            </button>
-          </Field>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <label style={S.smallLabel}>Our vision</label>
-          <textarea style={S.visionInput} rows={3}
-            placeholder="A few words about the day you're dreaming of…"
-            value={state.vision} onChange={(e) => set({ vision: e.target.value })} />
-        </div>
-      </section>
+      {/* what needs doing next */}
+      {upcoming.length > 0 && (
+        <section style={S.nextUp}>
+          <div style={S.nextUpHead}>Next up</div>
+          {upcoming.map((it) => {
+            const color = it.days < 0 ? "#b0524a" : it.days <= 14 ? "#b8862f" : "#8a6d68";
+            return (
+              <button key={it.key} style={S.nextUpRow} onClick={() => go(it.tab)}>
+                <span style={{ ...S.nextUpDot, background: color }} />
+                <span style={S.nextUpTitle}>{it.title}</span>
+                <span style={{ ...S.nextUpWhen, color }}>{whenLabel(it.date)}</span>
+                <span style={S.footerChevron}>›</span>
+              </button>
+            );
+          })}
+        </section>
+      )}
 
+      {/* summary cards */}
+      <div style={S.summaryGrid}>
+        <SummaryCard onClick={() => go("budget")} icon="budget" label="Budget"
+          big={fmt(totalSpent)} sub={`of ${fmt(state.total)} spent`} />
+        <SummaryCard onClick={() => go("checklist")} icon="check" label="Checklist"
+          big={`${tasksDone}/${tasks.length}`} sub="tasks done" />
+        <SummaryCard onClick={() => go("guests")} icon="guest" label="Guests"
+          big={`${heads}`} sub="coming (incl. +1s)" />
+        <SummaryCard onClick={() => go("vendors")} icon="vendor" label="Vendors"
+          big={`${vendorsBooked}/${state.vendors.length}`} sub="booked" />
+      </div>
       {/* photo gallery */}
       <section style={S.dashboard}>
         <div style={S.galleryHead}>
@@ -1553,17 +1604,44 @@ function HomeView({ state, update, go }) {
         )}
       </section>
 
-      {/* summary cards */}
-      <div style={S.summaryGrid}>
-        <SummaryCard onClick={() => go("budget")} icon="budget" label="Budget"
-          big={fmt(totalSpent)} sub={`of ${fmt(state.total)} spent`} />
-        <SummaryCard onClick={() => go("checklist")} icon="check" label="Checklist"
-          big={`${tasksDone}/${tasks.length}`} sub="tasks done" />
-        <SummaryCard onClick={() => go("guests")} icon="guest" label="Guests"
-          big={`${heads}`} sub="coming (incl. +1s)" />
-        <SummaryCard onClick={() => go("vendors")} icon="vendor" label="Vendors"
-          big={`${vendorsBooked}/${state.vendors.length}`} sub="booked" />
-      </div>
+      {/* our details — filled once, so it folds away */}
+      <section style={S.dashboard}>
+        <button style={S.detailsHead} onClick={() => setShowDetails((v) => !v)}>
+          <span style={S.smallLabel}>Our details</span>
+          <span style={{ ...S.chevron, transform: showDetails ? "rotate(90deg)" : "none" }}>›</span>
+        </button>
+        {showDetails && (
+          <div>
+
+        <div style={S.profileGrid}>
+          <Field label="Partner 1">
+            <input style={S.fieldInput} placeholder="Name" value={state.partner1} onChange={(e) => set({ partner1: e.target.value })} />
+          </Field>
+          <Field label="Partner 2">
+            <input style={S.fieldInput} placeholder="Name" value={state.partner2} onChange={(e) => set({ partner2: e.target.value })} />
+          </Field>
+          <Field label="Wedding date">
+            <input ref={dateRef} type="date" style={S.fieldInput} value={state.weddingDate} onChange={(e) => set({ weddingDate: e.target.value })} />
+          </Field>
+          <Field label="Venue">
+            <button style={S.venueLink} onClick={() => go("venues")}>
+              <span style={venueValue ? undefined : S.venueLinkEmpty}>
+                {venueValue || "Choose a venue"}
+              </span>
+              <span style={S.venueLinkChevron}>›</span>
+            </button>
+          </Field>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <label style={S.smallLabel}>Our vision</label>
+          <textarea style={S.visionInput} rows={3}
+            placeholder="A few words about the day you're dreaming of…"
+            value={state.vision} onChange={(e) => set({ vision: e.target.value })} />
+        </div>
+                </div>
+        )}
+      </section>
+
     </>
   );
 }
@@ -4106,6 +4184,14 @@ const S = {
   donutEmpty: { display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "10px 0 2px" },
   donutEmptyRing: { width: 120, height: 120, borderRadius: "50%", border: "22px solid #f4e8e4", boxSizing: "border-box" },
   donutEmptyText: { fontSize: 13, color: "#b58e87", textAlign: "center", maxWidth: 300, lineHeight: 1.45 },
+  nextUp: { background: "#fff", borderRadius: 16, padding: "14px 14px 8px", marginBottom: 14, boxShadow: "0 10px 30px -22px rgba(107,74,69,0.6)" },
+  nextUpHead: { fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b58e87", marginBottom: 4 },
+  nextUpRow: { display: "flex", alignItems: "center", gap: 9, width: "100%", background: "none", border: "none", padding: "9px 0", fontSize: 14, fontFamily: "inherit", color: "#3a2e2c", textAlign: "left", cursor: "pointer" },
+  nextUpDot: { width: 8, height: 8, borderRadius: "50%", flex: "none" },
+  // Wraps rather than truncating: the amount matters as much as the name.
+  nextUpTitle: { flex: 1, minWidth: 0, lineHeight: 1.35 },
+  nextUpWhen: { fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" },
+  detailsHead: { display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer" },
   donutToggle: { display: "flex", justifyContent: "center", gap: 4, background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 99, padding: 3, width: "fit-content", margin: "4px auto 0" },
   donutToggleBtn: { background: "none", border: "none", borderRadius: 99, padding: "6px 16px", fontSize: 13, fontFamily: "inherit", color: "#b58e87", cursor: "pointer" },
   donutToggleOn: { background: "#fff", color: "#6b4a45", fontWeight: 600, boxShadow: "0 2px 8px -4px rgba(107,74,69,0.45)" },
