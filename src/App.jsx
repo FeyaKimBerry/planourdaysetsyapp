@@ -200,11 +200,12 @@ function makeInitialState() {
     currency: "AUD",
     tables: [],
     total: DEFAULT_TOTAL,
-    categories: PRESET_CATEGORIES.map((c) => ({
+    categories: PRESET_CATEGORIES.map((c, i) => ({
       id: c.id,
       name: c.name,
       allocated: Math.round(DEFAULT_TOTAL * c.pct),
       expenses: [],
+      color: CAT_COLORS[i % CAT_COLORS.length],
     })),
     checklist: CHECKLIST_BUCKETS.map((b) => ({
       id: b.id,
@@ -276,6 +277,41 @@ const fmt = (n) => {
 const catSpent = (cat) =>
   cat.expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
+/* ---------- category colours ---------- */
+
+// Soft, distinguishable shades in the app's palette. A colour is stored on the
+// category itself, not derived from its position, so dragging categories into a
+// new order never repaints the chart.
+const CAT_COLORS = [
+  "#c98b94", // rose
+  "#8ba888", // sage
+  "#d9a7a0", // blush
+  "#9fb4c7", // dusty blue
+  "#e0b978", // gold
+  "#b58e87", // mauve
+  "#c4a3c8", // lilac
+  "#d98d6a", // terracotta
+  "#7f9d9b", // teal
+  "#b0c49a", // moss
+];
+
+// The palette colour used least by the categories so far, so the first ten are
+// always distinct and later ones repeat as evenly as possible.
+function nextCatColor(categories = []) {
+  const used = new Map(CAT_COLORS.map((c) => [c, 0]));
+  for (const c of categories) if (used.has(c.color)) used.set(c.color, used.get(c.color) + 1);
+  let best = CAT_COLORS[0];
+  for (const c of CAT_COLORS) if (used.get(c) < used.get(best)) best = c;
+  return best;
+}
+
+// Plans saved before categories had colours get one on load.
+function withCatColors(categories) {
+  const out = [];
+  for (const c of categories || []) out.push(c.color ? c : { ...c, color: nextCatColor(out) });
+  return out;
+}
+
 // Merge any missing top-level keys so old saved data still works.
 function hydrate(loaded) {
   const base = makeInitialState();
@@ -285,7 +321,7 @@ function hydrate(loaded) {
     ...loaded,
     updatedAt: loaded.updatedAt || base.updatedAt,
     rev: loaded.rev || base.rev,
-    categories: loaded.categories || base.categories,
+    categories: withCatColors(loaded.categories || base.categories),
     checklist: loaded.checklist || base.checklist,
     vendors: loaded.vendors || base.vendors,
     guests: loaded.guests || base.guests,
@@ -1546,6 +1582,64 @@ function SummaryCard({ onClick, icon, label, big, sub }) {
 }
 
 
+/* ============================================================
+   BUDGET DONUT — spending by category
+   ------------------------------------------------------------
+   Plain SVG (no chart library): each slice is a circle with a
+   dash pattern, rotated to start where the last one ended.
+   ============================================================ */
+
+const DONUT = { size: 190, stroke: 26 };
+
+function BudgetDonut({ slices, value, total, overBudget, verb }) {
+  const r = (DONUT.size - DONUT.stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const pct = total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0;
+
+  // Slices are drawn against the total budget, so the ring stays part-empty
+  // until the budget is fully spent — the gap *is* the money left. Once over
+  // budget the ring is full, so scale by what was actually spent instead of
+  // letting slices wrap over each other.
+  const sum = slices.reduce((s, x) => s + x.value, 0) || 1;
+  const scale = overBudget ? sum : (total > 0 ? total : sum);
+  let offset = 0;
+
+  return (
+    <div style={S.donutWrap}>
+      <svg width={DONUT.size} height={DONUT.size} viewBox={`0 0 ${DONUT.size} ${DONUT.size}`} style={S.donutSvg}>
+        <g transform={`rotate(-90 ${DONUT.size / 2} ${DONUT.size / 2})`}>
+          <circle cx={DONUT.size / 2} cy={DONUT.size / 2} r={r} fill="none"
+            stroke="#f4e8e4" strokeWidth={DONUT.stroke} />
+          {slices.map((sl) => {
+            const len = (sl.value / scale) * circ;
+            const dash = `${Math.max(0, len - 1.5)} ${circ - Math.max(0, len - 1.5)}`;
+            const el = (
+              <circle key={sl.id} cx={DONUT.size / 2} cy={DONUT.size / 2} r={r} fill="none"
+                stroke={sl.color} strokeWidth={DONUT.stroke}
+                strokeDasharray={dash} strokeDashoffset={-offset} />
+            );
+            offset += len;
+            return el;
+          })}
+          {/* Over budget: a red outline round the full ring, so the category
+              colours still match their dots in the list below. */}
+          {overBudget && (
+            <circle cx={DONUT.size / 2} cy={DONUT.size / 2} r={r + DONUT.stroke / 2 - 1} fill="none"
+              stroke="#c2566b" strokeWidth={2} />
+          )}
+        </g>
+      </svg>
+      <div style={S.donutCentre}>
+        <div style={{ ...S.donutBig, color: overBudget ? "#c2566b" : "#6b4a45" }}>{fmt(value)}</div>
+        <div style={S.donutSub}>of {fmt(total)}</div>
+        <div style={{ ...S.donutPct, color: overBudget ? "#c2566b" : "#8a6d68" }}>
+          {overBudget ? `${fmt(value - total)} over` : `${pct}% ${verb}`}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BudgetView({ state, update, go }) {
   const [openCat, setOpenCat] = useState(null);
   const [confirmDeleteCat, setConfirmDeleteCat] = useState(null);
@@ -1557,7 +1651,6 @@ function BudgetView({ state, update, go }) {
     (s, c) => s + c.expenses.filter((e) => !e.paid).reduce((a, e) => a + (Number(e.amount) || 0), 0),
     0
   );
-  const spentPct = state.total > 0 ? Math.min(100, (totalSpent / state.total) * 100) : 0;
   const overBudget = totalSpent > state.total;
 
   // What's contractually committed to vendors but not yet paid:
@@ -1568,9 +1661,43 @@ function BudgetView({ state, update, go }) {
     .filter((v) => v.owed > 0);
   const totalCommitted = vendorsOwed.reduce((s, v) => s + v.owed, 0);
 
+  // The donut shows either what's been spent or how the budget is divided up.
+  // Until they choose, it picks the one that has something to show: a plan with
+  // no spending yet is far more useful as its allocations.
+  const [donutChoice, setDonutChoice] = useState(null);
+  const donutMode = donutChoice || (totalSpent > 0 ? "spent" : "planned");
+  const showingSpent = donutMode === "spent";
+
+  // Biggest first, and once past 8 the tail is grouped into "Other" — beyond
+  // that the colours stop being tellable apart.
+  const MAX_SLICES = 8;
+  const ranked = state.categories
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      color: c.color || CAT_COLORS[0],
+      value: showingSpent ? catSpent(c) : (Number(c.allocated) || 0),
+    }))
+    .filter((c) => c.value > 0)
+    .sort((a, b) => b.value - a.value);
+  const donutSlices = ranked.length > MAX_SLICES
+    ? [
+        ...ranked.slice(0, MAX_SLICES - 1),
+        {
+          id: "__other",
+          name: "Other",
+          color: "#cbb7b2",
+          value: ranked.slice(MAX_SLICES - 1).reduce((s, c) => s + c.value, 0),
+        },
+      ]
+    : ranked;
+
+  const donutValue = showingSpent ? totalSpent : totalAllocated;
+  const donutOver = state.total > 0 && donutValue > state.total;
+
   const setTotal = (v) => update((s) => { s.total = Math.max(0, Number(v) || 0); return s; });
-  const addCategory = () => update((s) => { s.categories.push({ id: uid(), name: "New Category", allocated: 0, expenses: [] }); return s; });
-  const addNamedCategory = (name) => update((s) => { s.categories.push({ id: uid(), name, allocated: 0, expenses: [] }); return s; });
+  const addCategory = () => update((s) => { s.categories.push({ id: uid(), name: "New Category", allocated: 0, expenses: [], color: nextCatColor(s.categories) }); return s; });
+  const addNamedCategory = (name) => update((s) => { s.categories.push({ id: uid(), name, allocated: 0, expenses: [], color: nextCatColor(s.categories) }); return s; });
   // Anything they already have — however it got there — drops off the list.
   const suggestions = SUGGESTED_CATEGORIES.filter(
     (n) => !state.categories.some((c) => (c.name || "").trim().toLowerCase() === n.toLowerCase())
@@ -1612,9 +1739,38 @@ function BudgetView({ state, update, go }) {
           </div>
         </div>
 
-        <div style={S.bar}>
-          <div style={{ ...S.barFill, width: `${spentPct}%`, background: overBudget ? "#c2566b" : "linear-gradient(90deg,#d9a7a0,#c98b94)" }} />
+        <div style={S.donutToggle}>
+          {[["spent", "Spent"], ["planned", "Planned"]].map(([mode, label]) => (
+            <button key={mode} onClick={() => setDonutChoice(mode)}
+              style={{ ...S.donutToggleBtn, ...(donutMode === mode ? S.donutToggleOn : null) }}>
+              {label}
+            </button>
+          ))}
         </div>
+
+        {donutSlices.length > 0 ? (
+          <>
+            <BudgetDonut slices={donutSlices} value={donutValue} total={state.total}
+              overBudget={donutOver} verb={showingSpent ? "spent" : "allocated"} />
+            <div style={S.donutLegend}>
+              {donutSlices.map((sl) => (
+                <span key={sl.id} style={S.donutLegendItem}>
+                  <span style={{ ...S.donutDot, background: sl.color }} />
+                  {sl.name} <span style={S.donutLegendAmt}>{fmt(sl.value)}</span>
+                </span>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div style={S.donutEmpty}>
+            <div style={S.donutEmptyRing} />
+            <div style={S.donutEmptyText}>
+              {showingSpent
+                ? "Nothing spent yet — log a payment in a category below and it'll appear here in colour."
+                : "No amounts set aside yet — give a category an allocation below and it'll appear here in colour."}
+            </div>
+          </div>
+        )}
 
         <div style={S.stats} className="stats-grid">
           <Stat label="Spent" value={fmt(totalSpent)} accent={overBudget ? "#c2566b" : "#8a6d68"} />
@@ -1675,7 +1831,11 @@ function BudgetView({ state, update, go }) {
                 <div style={{ display: "flex", alignItems: "center", flex: 1, cursor: "pointer" }} onClick={() => { setOpenCat(isOpen ? null : cat.id); setConfirmDeleteCat(null); }}>
                 <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
                 <div style={S.catMain}>
-                  <div style={S.catName}>{cat.name}</div>
+                  <div style={S.catName}>
+                    {/* Same colour as this category's slice in the donut. */}
+                    <span style={{ ...S.catDot, background: cat.color || CAT_COLORS[0] }} />
+                    {cat.name}
+                  </div>
                   <div style={S.catNumbers}>
                     <span style={S.catSpent}>{fmt(spent)}</span>
                     <span style={S.catOf}>of {fmt(cat.allocated)}</span>
@@ -1683,6 +1843,17 @@ function BudgetView({ state, update, go }) {
                       {diff < 0 ? `${fmt(-diff)} over` : `${fmt(diff)} left`}
                     </span>
                   </div>
+                  {/* How full this category is: spent against its allocation,
+                      in its own colour so it ties back to the donut. */}
+                  {(cat.allocated > 0 || spent > 0) && (
+                    <div style={S.catBar}>
+                      <div style={{
+                        ...S.catBarFill,
+                        width: `${cat.allocated > 0 ? Math.min(100, (spent / cat.allocated) * 100) : 100}%`,
+                        background: diff < 0 ? "#c2566b" : (cat.color || CAT_COLORS[0]),
+                      }} />
+                    </div>
+                  )}
                   {catVendors.length > 0 && (
                     <div style={S.catVendorHint}>
                       {catVendors.length} vendor{catVendors.length > 1 ? "s" : ""}
@@ -2127,7 +2298,7 @@ function VendorsView({ state, update }) {
     if (!clean) return;
     update((s) => {
       const id = uid();
-      s.categories.push({ id, name: clean, allocated: 0, expenses: [] });
+      s.categories.push({ id, name: clean, allocated: 0, expenses: [], color: nextCatColor(s.categories) });
       const v = s.vendors.find((x) => x.id === vendorId);
       if (v) v.categoryId = id;
       return s;
@@ -3922,6 +4093,25 @@ const S = {
   deleteWarn: { background: "#fdf0f2", borderTop: "1px solid #f6dde2", padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
   deleteWarnText: { flex: 1, minWidth: 180, fontSize: 13, color: "#9c5560", lineHeight: 1.45 },
   deleteWarnBtns: { display: "flex", gap: 6, flexShrink: 0 },
+  donutWrap: { position: "relative", width: DONUT.size, height: DONUT.size, margin: "6px auto 2px", maxWidth: "100%" },
+  donutSvg: { display: "block", width: "100%", height: "auto" },
+  donutCentre: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", pointerEvents: "none" },
+  donutBig: { fontFamily: "'Fraunces', serif", fontSize: 26, fontWeight: 600 },
+  donutSub: { fontSize: 12, color: "#b58e87", marginTop: 1 },
+  donutPct: { fontSize: 12, fontWeight: 600, marginTop: 5 },
+  donutLegend: { display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "6px 14px", marginTop: 12 },
+  donutLegendItem: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#8a6d68" },
+  donutLegendAmt: { color: "#b58e87" },
+  donutDot: { width: 9, height: 9, borderRadius: "50%", flex: "none" },
+  donutEmpty: { display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "10px 0 2px" },
+  donutEmptyRing: { width: 120, height: 120, borderRadius: "50%", border: "22px solid #f4e8e4", boxSizing: "border-box" },
+  donutEmptyText: { fontSize: 13, color: "#b58e87", textAlign: "center", maxWidth: 300, lineHeight: 1.45 },
+  donutToggle: { display: "flex", justifyContent: "center", gap: 4, background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 99, padding: 3, width: "fit-content", margin: "4px auto 0" },
+  donutToggleBtn: { background: "none", border: "none", borderRadius: 99, padding: "6px 16px", fontSize: 13, fontFamily: "inherit", color: "#b58e87", cursor: "pointer" },
+  donutToggleOn: { background: "#fff", color: "#6b4a45", fontWeight: 600, boxShadow: "0 2px 8px -4px rgba(107,74,69,0.45)" },
+  catBar: { height: 5, borderRadius: 99, background: "#f4e8e4", overflow: "hidden", marginTop: 8 },
+  catBarFill: { height: "100%", borderRadius: 99 },
+  catDot: { display: "inline-block", width: 9, height: 9, borderRadius: "50%", marginRight: 8, verticalAlign: "middle", flex: "none" },
   dueLine: { fontSize: 12, marginTop: 4, fontWeight: 600 },
   owedDue: { display: "block", fontSize: 11, marginTop: 2, fontWeight: 600 },
   suggestBox: { marginTop: 18 },
