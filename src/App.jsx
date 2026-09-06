@@ -1555,10 +1555,10 @@ function HomeView({ state, update, go }) {
 
   // Style board: colours, words and the photos, folded away by default so it
   // lives on Home without crowding the dashboard.
-  const [showStyle, setShowStyle] = useState(() => panelOpen("style"));
-  const toggleStyle = () => setShowStyle((v) => { savePanel("style", !v); return !v; });
+  // The board rests as a finished card and opens for editing on a tap, so it
+  // never looks like a form until you actually want to change something.
+  const [styleEditing, setStyleEditing] = useState(false);
   const palette = state.palette || [];
-  const stylePreview = (state.styleWords || state.vision || "").trim();
 
   // Which swatch the colour picker is open for: an index, "new", or null.
   const [pickerFor, setPickerFor] = useState(null);
@@ -1705,39 +1705,49 @@ function HomeView({ state, update, go }) {
         )}
       </section>
 
-      {/* our style — palette, words and photos, folded away like the details
-          so the board lives on Home without pushing the dashboard down */}
-      <section style={S.dashboard}>
-        <button style={S.detailsHead} onClick={toggleStyle}>
+      {/* our style — a finished board at rest; tap it to get the controls,
+          Done to put them away again */}
+      <section style={{ ...S.dashboard, cursor: styleEditing ? "default" : "pointer" }}
+        onClick={styleEditing ? undefined : () => setStyleEditing(true)}>
+        <div style={S.styleHead}>
           <span style={S.smallLabel}>Our style</span>
-          <span style={S.styleStrip}>
-            {palette.slice(0, 6).map((c, i) => (
-              <span key={i} style={{ ...S.styleStripDot, background: c }} />
-            ))}
-            {!showStyle && stylePreview && <span style={S.styleStripWords}>{stylePreview}</span>}
-          </span>
-          <span style={{ ...S.chevron, transform: showStyle ? "rotate(90deg)" : "none" }}>›</span>
-        </button>
-
-        {showStyle && (
-        <div style={{ marginTop: 14 }}>
-        <label style={S.smallLabel}>Our colours</label>
-        <div style={S.paletteRow}>
-          {palette.map((c, i) => (
-            <span key={i} style={S.swatchWrap}>
-              <button aria-label={`Colour ${i + 1}`} onClick={() => openPicker(pickerFor === i ? null : i)}
-                style={{ ...S.swatch, background: c, ...(pickerFor === i ? S.swatchActive : null) }} />
-              <button style={S.swatchRemove} aria-label="Remove colour"
-                onClick={() => { removeColor(i); setPickerFor(null); }}>×</button>
-            </span>
-          ))}
-          {palette.length < MAX_PALETTE && (
-            <button style={{ ...S.swatchAdd, ...(pickerFor === "new" ? S.swatchActive : null) }}
-              onClick={() => openPicker(pickerFor === "new" ? null : "new")} aria-label="Add a colour">+</button>
-          )}
+          {!styleEditing && <span style={S.styleEditHint}>Tap to edit ›</span>}
         </div>
 
-        {pickerFor !== null && (
+        {styleEditing && (
+          <div style={S.styleNote}>Everything here is yours to change — tap Done when you're happy.</div>
+        )}
+
+        {/* ---- colours ---- */}
+        {styleEditing && (
+          <>
+            <label style={{ ...S.smallLabel, display: "block", marginTop: 16 }}>Our colours</label>
+            <div style={S.fieldHint}>Tap a colour to change it, or + to add one. The codes are what you give a florist or stylist.</div>
+          </>
+        )}
+        {(palette.length > 0 || styleEditing) && (
+          <div style={{ ...S.paletteRow, marginTop: styleEditing ? 10 : 4 }}>
+            {palette.map((c, i) => (
+              <span key={i} style={S.swatchWrap}>
+                <button aria-label={`Colour ${i + 1}`} disabled={!styleEditing}
+                  onClick={() => openPicker(pickerFor === i ? null : i)}
+                  style={{ ...S.swatch, background: c, cursor: styleEditing ? "pointer" : "default",
+                    ...(pickerFor === i ? S.swatchActive : null) }} />
+                <span style={S.swatchHex}>{c.toUpperCase()}</span>
+                {styleEditing && (
+                  <button style={S.swatchRemove} aria-label="Remove colour"
+                    onClick={() => { removeColor(i); setPickerFor(null); }}>×</button>
+                )}
+              </span>
+            ))}
+            {styleEditing && palette.length < MAX_PALETTE && (
+              <button style={{ ...S.swatchAdd, ...(pickerFor === "new" ? S.swatchActive : null) }}
+                onClick={() => openPicker(pickerFor === "new" ? null : "new")} aria-label="Add a colour">+</button>
+            )}
+          </div>
+        )}
+
+        {styleEditing && pickerFor !== null && (
           <div style={S.picker}>
             <div style={S.pickerGrid}>
               {PICKER_COLORS.map((c) => (
@@ -1760,50 +1770,70 @@ function HomeView({ state, update, go }) {
           </div>
         )}
 
-        <div style={{ marginTop: 14 }}>
-          <label style={S.smallLabel}>Style words</label>
-          <input style={S.fieldInput} placeholder="garden, candlelit, relaxed…"
-            value={state.styleWords || ""} onChange={(e) => set({ styleWords: e.target.value })} />
-        </div>
+        {/* ---- words ---- */}
+        {styleEditing ? (
+          <>
+            <label style={{ ...S.smallLabel, display: "block", marginTop: 18 }}>Style words</label>
+            <div style={S.fieldHint}>Three or four words for the feel of the day — garden, candlelit, relaxed.</div>
+            <input style={S.styleWordsInput} placeholder="garden, candlelit, relaxed…"
+              value={state.styleWords || ""} onChange={(e) => set({ styleWords: e.target.value })}
+              aria-label="Style words" />
 
-        <div style={{ marginTop: 14 }}>
-          <label style={S.smallLabel}>Our vision</label>
-          <textarea style={S.visionInput} rows={3}
-            placeholder="A few words about the day you're dreaming of…"
-            value={state.vision} onChange={(e) => set({ vision: e.target.value })} />
-        </div>
-
-        <div style={{ ...S.galleryHead, marginTop: 16 }}>
-          <label style={S.smallLabel}>Photos</label>
-          <label style={S.addPhotoBtn}>
-            + Add photos
-            <input type="file" accept="image/*" multiple style={{ display: "none" }}
-              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }} />
-          </label>
-        </div>
-        {photos.length === 0 ? (
-          <div style={S.galleryEmpty}>Add a favourite photo of the two of you — the first one becomes your banner. Everything after it is your inspiration.</div>
+            <label style={{ ...S.smallLabel, display: "block", marginTop: 18 }}>Our vision</label>
+            <div style={S.fieldHint}>A sentence or two about the day you're picturing.</div>
+            <textarea style={S.styleVisionInput} rows={3}
+              placeholder="A long table under the trees, lots of candles, nothing stiff…"
+              value={state.vision} onChange={(e) => set({ vision: e.target.value })}
+              aria-label="Our vision" />
+          </>
         ) : (
-          <div style={S.galleryGrid}>
+          <>
+            {state.styleWords && <div style={S.styleWordsView}>{state.styleWords}</div>}
+            {state.vision && <div style={S.styleVisionView}>{state.vision}</div>}
+          </>
+        )}
+
+        {/* ---- inspo photos ---- */}
+        {styleEditing && (
+          <>
+            <div style={{ ...S.galleryHead, marginTop: 18 }}>
+              <label style={S.smallLabel}>Inspo photos</label>
+              <label style={S.addPhotoBtn} onClick={(e) => e.stopPropagation()}>
+                + Add photos
+                <input type="file" accept="image/*" multiple style={{ display: "none" }}
+                  onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }} />
+              </label>
+            </div>
+            <div style={S.fieldHint}>The first photo becomes your banner at the top of this page. Everything after it is inspiration.</div>
+          </>
+        )}
+        {photos.length === 0 ? (
+          styleEditing && <div style={S.galleryEmpty}>No photos yet — add a favourite of the two of you, then anything that captures the look you're after.</div>
+        ) : (
+          <div style={{ ...S.galleryGrid, marginTop: styleEditing ? 10 : 14 }}>
             {photos.map((p, i) => (
               <div key={p.id} style={S.galleryItem}>
                 <img src={p.src} alt="" style={S.galleryImg} />
                 {i === 0 ? (
                   <span style={S.bannerTag}>★ Banner</span>
-                ) : (
+                ) : styleEditing ? (
                   <button style={S.setCoverBtn} onClick={() => setCover(p.id)} aria-label="Set as banner photo">☆ Banner</button>
-                )}
-                <button style={S.galleryRemove} onClick={() => removePhoto(p.id)}>×</button>
+                ) : null}
+                {styleEditing && <button style={S.galleryRemove} onClick={() => removePhoto(p.id)}>×</button>}
               </div>
             ))}
           </div>
         )}
-        {photos.length > 1 && (
-          <div style={{ fontSize: 12, color: "#b58e87", marginTop: 8 }}>
-            The first photo is your banner — tap “☆ Banner” on any other to swap it in.
-          </div>
+
+        {/* nothing set yet: say what this is for rather than showing a blank card */}
+        {!styleEditing && palette.length === 0 && !state.styleWords && !state.vision && photos.length === 0 && (
+          <div style={S.styleEmpty}>Your colours, the feel of the day, and photos that capture it — tap to start.</div>
         )}
-        </div>
+
+        {styleEditing && (
+          <button style={S.doneBtn} onClick={(e) => { e.stopPropagation(); setStyleEditing(false); setPickerFor(null); }}>
+            Done
+          </button>
         )}
       </section>
 
@@ -4442,13 +4472,23 @@ const S = {
   // Wraps rather than truncating: the amount matters as much as the name.
   nextUpTitle: { flex: 1, minWidth: 0, lineHeight: 1.35 },
   nextUpWhen: { fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" },
-  styleStrip: { display: "flex", alignItems: "center", gap: 5, flex: 1, minWidth: 0, marginLeft: 12, overflow: "hidden" },
-  styleStripDot: { width: 14, height: 14, borderRadius: "50%", border: "1px solid rgba(107,74,69,0.12)", flex: "none" },
-  styleStripWords: { fontSize: 12, color: "#b58e87", marginLeft: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  paletteRow: { display: "flex", flexWrap: "wrap", gap: 10, marginTop: 8 },
-  swatchWrap: { position: "relative", display: "inline-flex", width: 44, height: 44 },
-  swatch: { width: 44, height: 44, padding: 0, border: "1px solid rgba(107,74,69,0.14)", borderRadius: 12, cursor: "pointer" },
+  // Arch-topped swatches — the shape wedding stationery uses — with the code
+  // sitting quietly underneath rather than printed across the colour.
+  paletteRow: { display: "flex", flexWrap: "wrap", gap: 10 },
+  swatchWrap: { position: "relative", display: "flex", flexDirection: "column", alignItems: "center", flex: "1 1 74px", minWidth: 74, maxWidth: 120 },
+  swatch: { width: "100%", height: 92, padding: 0, border: "1px solid rgba(107,74,69,0.12)", borderRadius: "999px 999px 10px 10px" },
+  swatchHex: { fontSize: 10, letterSpacing: "0.09em", color: "#b58e87", marginTop: 7, fontFamily: "'Outfit', sans-serif" },
   swatchActive: { outline: "2px solid #c98b94", outlineOffset: 2 },
+  styleHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  styleEditHint: { fontSize: 12, color: "#c98b94", fontWeight: 600 },
+  styleNote: { fontSize: 12, color: "#b58e87", marginTop: 6 },
+  fieldHint: { fontSize: 12, color: "#c4aaa4", lineHeight: 1.45, marginTop: 3 },
+  styleEmpty: { fontSize: 13, color: "#b58e87", lineHeight: 1.5, marginTop: 10 },
+  // Serif for both, generous line-height: meant to be read, not filled in.
+  styleWordsView: { fontFamily: "'Fraunces', serif", fontStyle: "italic", fontSize: 21, lineHeight: 1.35, color: "#6b4a45", marginTop: 18 },
+  styleVisionView: { fontFamily: "'Fraunces', serif", fontSize: 15, lineHeight: 1.7, color: "#8a6d68", marginTop: 10 },
+  styleWordsInput: { width: "100%", boxSizing: "border-box", marginTop: 8, background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 10, padding: "10px 12px", fontFamily: "'Fraunces', serif", fontStyle: "italic", fontSize: 19, color: "#6b4a45", outline: "none" },
+  styleVisionInput: { width: "100%", boxSizing: "border-box", marginTop: 8, background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 10, padding: "10px 12px", fontFamily: "'Fraunces', serif", fontSize: 15, lineHeight: 1.7, color: "#6b4a45", resize: "vertical", outline: "none" },
   picker: { background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 14, padding: 12, marginTop: 12 },
   pickerGrid: { display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 7 },
   pickerSwatch: { width: "100%", aspectRatio: "1", border: "1px solid rgba(107,74,69,0.14)", borderRadius: 8, cursor: "pointer", padding: 0 },
@@ -4457,7 +4497,7 @@ const S = {
   pickerDone: { background: "#c98b94", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 14, fontWeight: 600, cursor: "pointer", flexShrink: 0 },
   pickerHint: { fontSize: 11, color: "#c4aaa4", marginTop: 8 },
   swatchRemove: { position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: "#fff", border: "1px solid #f0e2dd", color: "#b07a72", fontSize: 13, lineHeight: 1, cursor: "pointer", padding: 0 },
-  swatchAdd: { width: 44, height: 44, borderRadius: 12, border: "1.5px dashed #d9b8b2", background: "transparent", color: "#b58e87", fontSize: 20, lineHeight: 1, cursor: "pointer" },
+  swatchAdd: { flex: "1 1 74px", minWidth: 74, maxWidth: 120, height: 92, borderRadius: "999px 999px 10px 10px", border: "1.5px dashed #d9b8b2", background: "transparent", color: "#b58e87", fontSize: 22, lineHeight: 1, cursor: "pointer", alignSelf: "flex-start" },
   detailsHead: { display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer" },
   donutToggle: { display: "flex", justifyContent: "center", gap: 4, background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 99, padding: 3, width: "fit-content", margin: "4px auto 0" },
   donutToggleBtn: { background: "none", border: "none", borderRadius: 99, padding: "6px 16px", fontSize: 13, fontFamily: "inherit", color: "#b58e87", cursor: "pointer" },
