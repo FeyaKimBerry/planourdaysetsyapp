@@ -1803,8 +1803,10 @@ function HomeView({ state, update, go }) {
   const heads = headcount(state.guests);
   const vendorsBooked = state.vendors.filter((v) => v.status === "Booked").length;
 
+  // Fraunces' italic ampersand is a curly swash, so the "&" is set upright —
+  // same typeface, same weight, just not the italic swash form.
   const names = state.partner1 && state.partner2
-    ? `${state.partner1} & ${state.partner2}`
+    ? <>{state.partner1} <span style={S.heroAmp}>&</span> {state.partner2}</>
     : (state.partner1 || state.partner2 || "Your Wedding");
 
   const dateLabel = state.weddingDate
@@ -4900,6 +4902,7 @@ const S = {
   galleryRemove: { position: "absolute", top: 5, right: 5, width: 24, height: 24, borderRadius: "50%", background: "rgba(58,46,44,0.55)", color: "#fff", fontSize: 15, lineHeight: 1 },
   bannerTag: { position: "absolute", bottom: 5, left: 5, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6b4a45", background: "rgba(255,255,255,0.9)", padding: "3px 7px", borderRadius: 6 },
   setCoverBtn: { position: "absolute", bottom: 5, left: 5, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#fff", background: "rgba(58,46,44,0.6)", border: "none", padding: "3px 7px", borderRadius: 6, cursor: "pointer" },
+  heroAmp: { fontStyle: "normal", fontSize: "0.72em" },
   heroNames: { fontFamily: "'Fraunces', serif", fontSize: "clamp(36px, 11vw, 56px)", fontWeight: 600, fontStyle: "italic", color: "#6b4a45", margin: "8px 0 10px", lineHeight: 1.05 },
   heroDate: { fontSize: 15, color: "#b58e87", marginBottom: 16 },
   heroVenue: { fontSize: 15, color: "#b58e87", marginBottom: 16 },
