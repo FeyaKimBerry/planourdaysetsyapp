@@ -1065,6 +1065,10 @@ export default function WeddingPlanner() {
   // The sync reminder can be closed; it comes back on its own after a month.
   const [syncHushedAt, setSyncHushedAt] = useState(() => syncHushedUntil());
   const dismissSyncLine = () => { hushSync(); setSyncHushedAt(syncHushedUntil()); };
+  // Briefly true right after a local save, so the status line can confirm it.
+  const [justSaved, setJustSaved] = useState(false);
+  const flashTimer = useRef(null);
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
   const [reconnectHushedAt, setReconnectHushedAt] = useState(() => reconnectHushedUntil());
   const dismissReconnect = () => { hushReconnect(); setReconnectHushedAt(reconnectHushedUntil()); };
 
@@ -1117,7 +1121,16 @@ export default function WeddingPlanner() {
     setStorageOk(savedOk); // no-op re-render unless it changed
 
     if (!didMount.current) { didMount.current = true; return; }
-    if (!connected) return; // local-only intent never pushes
+    if (!connected) {
+      // A local save is instant, so a permanently green dot tells you nothing.
+      // Flash "Saved just now" once they stop typing, then settle back.
+      if (savedOk) {
+        if (flashTimer.current) clearTimeout(flashTimer.current);
+        setJustSaved(true);
+        flashTimer.current = setTimeout(() => setJustSaved(false), 1800);
+      }
+      return; // local-only intent never pushes
+    }
 
     // The edit is now unsaved to Drive. Rapid edits coalesce: each
     // one resets the debounce timer, so only one push runs (~2.5s).
@@ -1282,7 +1295,7 @@ export default function WeddingPlanner() {
       })
     : !storageOk
       ? saveStateLabel({ storageError: true })
-      : { label: "Saved on this device", tone: "ok" };
+      : { label: justSaved ? "Saved just now" : "Saved on this device", tone: "ok" };
   const syncUrgent = syncBadge.tone === "error" || !storageOk || syncState === NEEDS_RECONNECT;
   // A lapsed session gets the banner, which says the same thing with a button
   // to fix it — so the status line stands down rather than saying it twice.
@@ -1375,8 +1388,11 @@ export default function WeddingPlanner() {
                 ) : !storageOk ? (
                   <SaveIndicator saveState={{ storageError: true }} />
                 ) : PERSISTS ? (
-                  // Local-only: the edit is safely on this device, so green.
-                  <StatusDot tone="ok">Saved on this device · sign in to sync across devices</StatusDot>
+                  // Local-only: green either way, but it says so out loud for a
+                  // moment after each edit so you can see it land.
+                  <StatusDot tone="ok">
+                    {justSaved ? "Saved just now" : "Saved on this device · sign in to sync across devices"}
+                  </StatusDot>
                 ) : null;
               // Preview mode: nothing actionable, leave as plain text.
               if (content === null) return "Preview mode · data won't persist here, but saving works in the deployed app";
