@@ -174,13 +174,18 @@ const PDF_PAGE_WIDTH = 760;
 
 // Ready-made colours for the style board: wedding palettes across the spectrum,
 // then neutrals. Anything else goes in by hex or the phone's colour wheel.
+// Eight suggestions spanning the range a wedding usually sits in — anything
+// else comes from the wheel or a pasted code, so this stays a shortcut rather
+// than a swatch book.
 const PICKER_COLORS = [
-  "#f3d9d3", "#e0aeb0", "#c98b94", "#b0454f",
-  "#c47a5a", "#d98d6a", "#ecd9b0", "#d4a843",
-  "#a8bfa3", "#8ba888", "#5f7a5b", "#7f9d9b",
-  "#9fb4c7", "#3f5670", "#c4a3c8", "#8b6a86",
-  "#7d3b46", "#f6efe6", "#f2e7dd", "#e2d3c2",
-  "#b9a79b", "#8a7d75", "#4a4442", "#2b2523",
+  "#f3d9d3", // blush
+  "#c98b94", // dusty rose
+  "#7d3b46", // burgundy
+  "#d98d6a", // terracotta
+  "#e0b978", // champagne
+  "#8ba888", // sage
+  "#9fb4c7", // dusty blue
+  "#f2e7dd", // ivory
 ];
 
 // A soft starting palette for the style board — there to be changed, but it
@@ -2028,17 +2033,20 @@ function HomeView({ state, update, go }) {
               ))}
             </div>
             <div style={S.pickerRow}>
-              <input style={{ ...S.fieldInput, flex: 1 }} placeholder="#c98b94" maxLength={7}
-                value={hexDraft} onChange={(e) => onHexChange(e.target.value)} aria-label="Colour code" />
-              <label style={S.pickerMore}>
-                More
-                <input type="color" style={{ position: "absolute", opacity: 0, width: 1, height: 1 }}
+              {/* The rainbow circle opens the phone's own colour wheel, so the
+                  eight above stay suggestions rather than the only choice. */}
+              <label style={S.pickerWheel} title="Pick any colour">
+                <span style={S.pickerWheelInner} />
+                <input type="color" aria-label="Pick any colour"
+                  style={{ position: "absolute", opacity: 0, width: 1, height: 1 }}
                   value={typeof pickerFor === "number" ? (palette[pickerFor] || "#c98b94") : "#c98b94"}
                   onChange={(e) => { applyColor(e.target.value); setHexDraft(e.target.value); }} />
               </label>
+              <input style={{ ...S.fieldInput, flex: 1 }} placeholder="#c98b94" maxLength={7}
+                value={hexDraft} onChange={(e) => onHexChange(e.target.value)} aria-label="Colour code" />
               <button style={S.pickerDone} onClick={() => setPickerFor(null)}>Done</button>
             </div>
-            <div style={S.pickerHint}>Tap a colour, or paste a code your florist gave you.</div>
+            <div style={S.pickerHint}>Tap a suggestion, use the wheel for any colour, or paste a code your florist gave you.</div>
           </div>
         )}
 
@@ -4782,10 +4790,15 @@ const S = {
   styleWordsInput: { width: "100%", boxSizing: "border-box", marginTop: 8, background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 10, padding: "10px 12px", fontFamily: "'Fraunces', serif", fontStyle: "italic", fontSize: 19, color: "#6b4a45", outline: "none" },
   styleVisionInput: { width: "100%", boxSizing: "border-box", marginTop: 8, background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 10, padding: "10px 12px", fontFamily: "'Fraunces', serif", fontSize: 15, lineHeight: 1.7, color: "#6b4a45", resize: "vertical", outline: "none" },
   picker: { background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 14, padding: 12, marginTop: 12 },
-  pickerGrid: { display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 7 },
+  // Nine cells (eight suggestions plus the wheel) on equal tracks, so they
+  // stay the same size however they wrap.
+  pickerGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(52px, 1fr))", gap: 8 },
   pickerSwatch: { width: "100%", aspectRatio: "1", border: "1px solid rgba(107,74,69,0.14)", borderRadius: 8, cursor: "pointer", padding: 0 },
   pickerRow: { display: "flex", alignItems: "center", gap: 8, marginTop: 12 },
-  pickerMore: { position: "relative", background: "#fff", border: "1px solid #f0e2dd", borderRadius: 8, padding: "9px 14px", fontSize: 14, color: "#b07a72", cursor: "pointer", flexShrink: 0 },
+  pickerWheel: { position: "relative", width: 42, height: 42, flexShrink: 0, borderRadius: "50%", cursor: "pointer",
+    background: "conic-gradient(#e0575f, #e0b978, #8ba888, #7f9d9b, #9fb4c7, #8b6a86, #c98b94, #e0575f)",
+    border: "1px solid rgba(107,74,69,0.14)", display: "flex", alignItems: "center", justifyContent: "center" },
+  pickerWheelInner: { width: "38%", height: "38%", borderRadius: "50%", background: "#fff", boxShadow: "inset 0 0 0 1px rgba(107,74,69,0.10)" },
   pickerDone: { background: "#c98b94", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 14, fontWeight: 600, cursor: "pointer", flexShrink: 0 },
   pickerHint: { fontSize: 11, color: "#c4aaa4", marginTop: 8 },
   swatchRemove: { position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: "#fff", border: "1px solid #f0e2dd", color: "#b07a72", fontSize: 13, lineHeight: 1, cursor: "pointer", padding: 0 },
