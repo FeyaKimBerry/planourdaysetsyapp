@@ -1996,9 +1996,14 @@ function HomeView({ state, update, go }) {
           <div style={{ ...S.paletteRow, marginTop: styleEditing ? 10 : 4 }}>
             {palette.map((c, i) => (
               <span key={i} style={S.swatchWrap}>
-                <button aria-label={`Colour ${i + 1}`} disabled={!styleEditing}
-                  onClick={() => openPicker(pickerFor === i ? null : i)}
-                  style={{ ...S.swatch, background: c, cursor: styleEditing ? "pointer" : "default",
+                <button aria-label={`Colour ${i + 1}`}
+                  onClick={(e) => {
+                    // From the card, one tap opens the board *and* this colour's
+                    // picker — a disabled swatch just swallowed the tap.
+                    if (!styleEditing) { e.stopPropagation(); setStyleEditing(true); openPicker(i); return; }
+                    openPicker(pickerFor === i ? null : i);
+                  }}
+                  style={{ ...S.swatch, background: c, cursor: "pointer",
                     ...(pickerFor === i ? S.swatchActive : null) }} />
                 <span style={S.swatchHex}>{c.toUpperCase()}</span>
                 {styleEditing && (
