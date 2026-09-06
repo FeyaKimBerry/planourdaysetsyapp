@@ -765,6 +765,176 @@ function SetupWizard({ onFinish, onSkipAll, onClose }) {
   );
 }
 
+/* ============================================================
+   HELP — the manual behind the "?"
+   ------------------------------------------------------------
+   The tour introduces the app; this explains it. Written for
+   someone who has never planned a wedding and doesn't know what
+   "allocated" or "contracted total" mean.
+   ============================================================ */
+
+const HELP_TOPICS = [
+  {
+    id: "saving",
+    emoji: "☁️",
+    title: "How your plan is saved",
+    body: [
+      "There's no save button — everything you type is kept the moment you type it.",
+      "The line under the logo tells you where things stand. A green dot means your plan is safe on this device. Amber means you're offline and it'll sync when you're back. Red means something needs your attention.",
+      "That line has an × if you'd rather not see it. Sync then lives as the small cloud button next to this one, and the reminder comes back by itself in a month. Anything actually wrong will always show, whether you've hidden it or not.",
+      "Signing in with Google keeps a copy in your own private Google Drive folder, so you can plan on your phone and finish on your laptop. You approve it once — after that it saves on its own, with no pop-ups.",
+      "Without signing in, your plan lives in this browser on this device only. Clearing your browser data would erase it, so either sign in or export a backup from Settings now and then.",
+    ],
+  },
+  {
+    id: "home",
+    emoji: "🏠",
+    title: "Home",
+    body: [
+      "The top is your day at a glance: your names, the date, your venue and the countdown. Tap the countdown to set or change the date.",
+      "Next up lists the soonest things with a date on them — checklist tasks you haven't ticked and vendor balances that are due. Red means overdue, amber means within a fortnight. Tap any row to jump straight to it.",
+      "The four cards are a summary of your budget, checklist, guests and vendors. Tap one to open that page.",
+      "Our details holds your names, date and venue. Our style holds your colours, the words for your day and your photos.",
+    ],
+  },
+  {
+    id: "budget",
+    emoji: "💰",
+    title: "Budget — the three words to know",
+    body: [
+      "Total budget is what you can spend altogether. Allocated is what you've set aside for each part — venue, catering, flowers — and those should add up to roughly your total.",
+      "Spent is money that has actually left your account. Upcoming is money you've written down but not paid yet. Remaining is what isn't spoken for. The three add up to your total budget.",
+      "To record money, open a category and fill in Add an expense: what it was for, how much, the date, and whether it's Paid or Upcoming.",
+      "The donut shows where your money is going, category by category. The Spent / Planned switch above it flips between what you've actually paid and how you've divided the budget up.",
+      "Each category has a coloured dot that matches its slice, and a small bar showing how full it is — solid for paid, faded for promised.",
+      "At the bottom, Suggested categories are common wedding costs. Tap one to add it. Deleting a category warns you first, because it also deletes the payments inside it.",
+    ],
+  },
+  {
+    id: "vendors",
+    emoji: "🤝",
+    title: "Vendors, and one-off purchases",
+    body: [
+      "A vendor is someone you're hiring where money is owed over time — a photographer, a caterer, a band.",
+      "Contracted total is the full agreed price. Balance due is the date the rest has to be paid, and it shows up in Next up on Home when it's close.",
+      "Status matters: only vendors marked Booked count toward your budget. That way you can keep three photographer quotes side by side without your budget thinking you've hired all three.",
+      "Payments logged inside a vendor appear in that vendor's budget category automatically, and reduce what they're still owed.",
+      "A one-off purchase you've already paid for — a dress, the rings, stamps, candles — isn't a vendor. There's no balance and no due date. Put it straight into Budget: open the right category and add it as an expense.",
+    ],
+  },
+  {
+    id: "venues",
+    emoji: "🏛️",
+    title: "Venues",
+    body: [
+      "Add the places you're considering and compare them side by side — price, how many people they hold, whether catering is included, and your own pros and cons.",
+      "Star a venue to add it to the comparison table at the top.",
+      "When you've decided, tap Choose this venue. Its name appears on your Home page, and it's added to your Vendors as Booked, with its price logged as an upcoming payment under Venue & Rentals.",
+      "That's why your budget jumps when you choose a venue — it's the money you've now committed. Mark payments as Paid as you actually make them.",
+      "Changed your mind? Undo removes it again, along with what it added.",
+    ],
+  },
+  {
+    id: "checklist",
+    emoji: "📋",
+    title: "Checklist",
+    body: [
+      "Tasks are grouped by how far out they are, from twelve months before down to after the wedding.",
+      "Tick things off as you go. Add your own tasks to any section, or add whole sections of your own.",
+      "Tap ⋯ on a task to give it a due date and a note. Anything with a due date appears in Next up on your Home page, so you don't have to go looking for it.",
+    ],
+  },
+  {
+    id: "guests",
+    emoji: "💗",
+    title: "Guests",
+    body: [
+      "The Planning list is for people you're still deciding about. The Invited list is the real one — only those count toward your numbers.",
+      "Each guest has an RSVP: Invited (waiting to hear), Yes, No or Maybe.",
+      "Party size is that guest plus anyone they bring. A guest with a partner is a party of 2. The big number at the top counts people, not names — that's the figure your caterer wants.",
+      "You can also record meal choices and put guests into groups, like the bride's family or work friends. The search box looks through names, groups and notes.",
+    ],
+  },
+  {
+    id: "seating",
+    emoji: "✦",
+    title: "Seating",
+    body: [
+      "Add round tables (8 seats) or long tables (20), and change the seat count on any of them.",
+      "To seat someone, tap a guest at the bottom and then tap a table — or use the Add guest dropdown on the table itself. Tap a seated name to take them off again.",
+      "Seats count people. A guest with a +1 takes two chairs, so a table showing 5/8 has five people at it, not five names. The count turns red if a table is over its seats.",
+    ],
+  },
+  {
+    id: "style",
+    emoji: "🎨",
+    title: "Our style",
+    body: [
+      "This is the look of your day, and it's the page worth handing to a florist or stylist.",
+      "Your colours are shown with their codes underneath — things like #C98B94. A supplier can match a colour exactly from that code, which they can't do from a printed picture.",
+      "Style words are three or four words for the feel of the day. Our vision is a sentence or two about what you're picturing.",
+      "Tap the card to edit any of it, then tap Done. The first photo you add becomes the banner at the top of Home; everything after it is inspiration.",
+      "All of it prints in your PDF.",
+    ],
+  },
+  {
+    id: "pdf",
+    emoji: "📄",
+    title: "Printing and backups",
+    body: [
+      "Settings → Preview & download PDF turns your whole plan into a document: budget, your style colours with their codes, checklist, vendors with what's still owed and when, guests and seating plan.",
+      "You see exactly what will be saved before you save it.",
+      "Export a backup file keeps a copy of everything on your device — worth doing now and then if you haven't signed in with Google. Restore from one puts it all back.",
+      "Currency is in Settings too, and changes every amount in the app.",
+    ],
+  },
+];
+
+function HelpSheet({ onClose, onTour }) {
+  const [open, setOpen] = useState(null);
+
+  return (
+    <div style={S.guideOverlay} onClick={onClose}>
+      <div style={S.helpCard} onClick={(e) => e.stopPropagation()}>
+        <div style={S.helpHead}>
+          <div>
+            <div style={S.helpTitle}>How this works</div>
+            <div style={S.helpSub}>Tap any topic to read more.</div>
+          </div>
+          <button style={S.pdfClose} onClick={onClose} aria-label="Close help">×</button>
+        </div>
+
+        <div style={S.helpScroll}>
+          {HELP_TOPICS.map((t) => {
+            const isOpen = open === t.id;
+            return (
+              <div key={t.id} style={S.helpTopic}>
+                <button style={S.helpTopicHead} onClick={() => setOpen(isOpen ? null : t.id)}>
+                  <span style={S.helpEmoji}>{t.emoji}</span>
+                  <span style={S.helpTopicTitle}>{t.title}</span>
+                  <span style={{ ...S.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
+                </button>
+                {isOpen && (
+                  <div style={S.helpBody}>
+                    {t.body.map((p, i) => <p key={i} style={S.helpPara}>{p}</p>)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={S.helpFoot}>
+          <button style={{ ...S.settingBtn, ...S.settingBtnOutline, flex: 1 }} onClick={onTour}>
+            Replay the tour
+          </button>
+          <button style={{ ...S.settingBtn, flex: 1 }} onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GuideModal({ onClose }) {
   const [slide, setSlide] = useState(0);
   const total = GUIDE_SLIDES.length;
@@ -837,6 +1007,8 @@ export default function WeddingPlanner() {
   // Persist the choice and update React state together.
   const chooseIntent = (v) => { setIntent(v); setIntentState(v); };
   const [showGuide, setShowGuide] = useState(false);
+  // "?" opens the manual; the tour stays for first run and can be replayed.
+  const [showHelp, setShowHelp] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   // Independent save-state flags (dirty / inFlight / health / neverSynced).
   // saveStateLabel() maps them to what the save indicator shows.
@@ -1126,7 +1298,7 @@ export default function WeddingPlanner() {
               <span style={{ ...S.syncBadgeDot, background: SAVE_TONE_COLOR[syncBadge.tone] || "#7a655f" }} />
             </button>
           )}
-          <button style={S.helpBtn} onClick={() => setShowGuide(true)} aria-label="Help">
+          <button style={S.helpBtn} onClick={() => setShowHelp(true)} aria-label="Help">
             <span style={{ fontSize: 15, fontWeight: 700, color: "#b07a72", lineHeight: 1 }}>?</span>
           </button>
           <button style={S.gearBtn} onClick={() => goTab("settings")} aria-label="Settings">
@@ -1139,6 +1311,10 @@ export default function WeddingPlanner() {
         onSkipAll={() => { localStorage.setItem(SETUP_KEY, "1"); setShowSetup(false); setShowGuide(true); }}
         onClose={() => { localStorage.setItem(SETUP_KEY, "1"); localStorage.setItem(GUIDE_KEY, "1"); setShowSetup(false); setShowGuide(false); }} />}
       {showGuide && <GuideModal onClose={closeGuide} />}
+      {showHelp && (
+        <HelpSheet onClose={() => setShowHelp(false)}
+          onTour={() => { setShowHelp(false); setShowGuide(true); }} />
+      )}
 
       {syncState === NEEDS_RECONNECT && (
         <ReconnectBanner busy={reconnecting} onReconnect={handleReconnect} />
@@ -4477,6 +4653,18 @@ const S = {
   expAdd: { width: 40, height: 40, borderRadius: "50%", background: "#c98b94", color: "#fff", fontSize: 20, lineHeight: 1, flexShrink: 0, transition: "opacity 0.2s" },
 
   syncLine: { display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 16, fontSize: 12, color: "#c4aaa4", textAlign: "center" },
+  helpCard: { background: "#fdf8f5", borderRadius: 20, width: "100%", maxWidth: 560, maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 30px 80px -30px rgba(80,50,45,0.6)" },
+  helpHead: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "18px 18px 12px", borderBottom: "1px solid #f0e2dd" },
+  helpTitle: { fontFamily: "'Fraunces', serif", fontSize: 21, fontWeight: 600, color: "#6b4a45" },
+  helpSub: { fontSize: 12.5, color: "#b58e87", marginTop: 3 },
+  helpScroll: { overflowY: "auto", padding: "8px 14px 4px", flex: 1 },
+  helpTopic: { background: "#fff", border: "1px solid #f0e2dd", borderRadius: 14, marginBottom: 8, overflow: "hidden" },
+  helpTopicHead: { display: "flex", alignItems: "center", gap: 10, width: "100%", background: "none", border: "none", padding: "13px 14px", cursor: "pointer", textAlign: "left", fontFamily: "inherit" },
+  helpEmoji: { fontSize: 17, flexShrink: 0 },
+  helpTopicTitle: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: "#6b4a45" },
+  helpBody: { padding: "0 14px 12px" },
+  helpPara: { fontSize: 14, lineHeight: 1.6, color: "#7a655f", margin: "0 0 10px" },
+  helpFoot: { display: "flex", gap: 10, padding: 14, borderTop: "1px solid #f0e2dd" },
   syncClose: { background: "none", border: "none", color: "#c4aaa4", fontSize: 16, lineHeight: 1, padding: "2px 4px", cursor: "pointer", flexShrink: 0 },
   // Sits with the ? and gear so a dismissed reminder still has a home.
   syncBadge: { position: "absolute", top: 20, right: 108, width: 36, height: 36, borderRadius: 12, background: "linear-gradient(135deg,#f9ede9,#f4e0da)", border: "1px solid #eac8bf", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, boxShadow: "0 4px 14px -6px rgba(180,110,100,0.45)", cursor: "pointer" },
