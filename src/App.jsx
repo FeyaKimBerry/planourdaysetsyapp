@@ -112,6 +112,24 @@ const SUGGESTED_CATEGORIES = [
 const SYNC_HUSH_KEY = "planourdays-sync-hushed";
 const SYNC_HUSH_DAYS = 30;
 
+// The reconnect prompt can be put away too, but only for a day: syncing is
+// actually broken, and the header badge stays red the whole time.
+const RECONNECT_HUSH_KEY = "planourdays-reconnect-hushed";
+const RECONNECT_HUSH_HOURS = 24;
+
+function reconnectHushedUntil() {
+  try {
+    const t = Number(window.localStorage.getItem(RECONNECT_HUSH_KEY)) || 0;
+    return t + RECONNECT_HUSH_HOURS * 3600000;
+  } catch {
+    return 0;
+  }
+}
+
+function hushReconnect() {
+  try { window.localStorage.setItem(RECONNECT_HUSH_KEY, String(Date.now())); } catch {}
+}
+
 function syncHushedUntil() {
   try {
     const t = Number(window.localStorage.getItem(SYNC_HUSH_KEY)) || 0;
@@ -532,16 +550,17 @@ function SaveIndicator({ saveState }) {
 // Shown when the Google session lapsed mid-use (NEEDS_RECONNECT). The
 // user's edits are safe locally; this offers a one-tap re-consent that
 // resumes syncing. Dismissing it just leaves them in local-safe mode.
-function ReconnectBanner({ busy, onReconnect }) {
+function ReconnectBanner({ busy, onReconnect, onDismiss }) {
   return (
     <div
       style={{
+        position: "relative",
         display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
         background: "#fbecd8", border: "1px solid #f0d9b3", borderRadius: 14,
-        color: "#7a5a1e", margin: "70px 16px 0", padding: "12px 14px", fontSize: 14,
+        color: "#7a5a1e", margin: "70px 16px 0", padding: "12px 34px 12px 14px", fontSize: 14,
       }}
     >
-      <span style={{ flex: 1, minWidth: 180 }}>
+      <span style={{ flex: 1, minWidth: 160 }}>
         Your Google session ended. Your changes are saved on this device — reconnect to sync them.
       </span>
       <button
@@ -554,6 +573,18 @@ function ReconnectBanner({ busy, onReconnect }) {
         }}
       >
         {busy ? "Reconnecting…" : "Reconnect"}
+      </button>
+      {/* Put it away for a day if they can't deal with it now — the header
+          badge stays red so the problem is never actually hidden. */}
+      <button
+        onClick={onDismiss}
+        aria-label="Hide until tomorrow"
+        style={{
+          position: "absolute", top: 6, right: 8, background: "none", border: "none",
+          color: "#b09159", fontSize: 17, lineHeight: 1, padding: 4, cursor: "pointer",
+        }}
+      >
+        ×
       </button>
     </div>
   );
@@ -1034,6 +1065,8 @@ export default function WeddingPlanner() {
   // The sync reminder can be closed; it comes back on its own after a month.
   const [syncHushedAt, setSyncHushedAt] = useState(() => syncHushedUntil());
   const dismissSyncLine = () => { hushSync(); setSyncHushedAt(syncHushedUntil()); };
+  const [reconnectHushedAt, setReconnectHushedAt] = useState(() => reconnectHushedUntil());
+  const dismissReconnect = () => { hushReconnect(); setReconnectHushedAt(reconnectHushedUntil()); };
 
   const recordSync = useCallback(() => {
     const t = Date.now();
@@ -1251,7 +1284,11 @@ export default function WeddingPlanner() {
       ? saveStateLabel({ storageError: true })
       : { label: "Saved on this device", tone: "ok" };
   const syncUrgent = syncBadge.tone === "error" || !storageOk || syncState === NEEDS_RECONNECT;
-  const showSyncLine = syncUrgent || Date.now() > syncHushedAt;
+  // A lapsed session gets the banner, which says the same thing with a button
+  // to fix it — so the status line stands down rather than saying it twice.
+  const needsReconnect = syncState === NEEDS_RECONNECT;
+  const showReconnect = needsReconnect && Date.now() > reconnectHushedAt;
+  const showSyncLine = needsReconnect ? false : (syncUrgent || Date.now() > syncHushedAt);
 
   const closeGuide = () => {
     localStorage.setItem(GUIDE_KEY, "1");
@@ -1316,8 +1353,8 @@ export default function WeddingPlanner() {
           onTour={() => { setShowHelp(false); setShowGuide(true); }} />
       )}
 
-      {syncState === NEEDS_RECONNECT && (
-        <ReconnectBanner busy={reconnecting} onReconnect={handleReconnect} />
+      {showReconnect && (
+        <ReconnectBanner busy={reconnecting} onReconnect={handleReconnect} onDismiss={dismissReconnect} />
       )}
 
       <div style={S.scroll}>
