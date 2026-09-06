@@ -1631,7 +1631,9 @@ function HomeView({ state, update, go }) {
       <div style={S.hero}>
         <div style={S.kicker}>We're getting married</div>
         <h1 style={S.heroNames}>{names}</h1>
-        {dateLabel && <div style={S.heroDate}>{dateLabel}</div>}
+        {dateLabel && <div style={{ ...S.heroDate, marginBottom: venueValue ? 2 : S.heroDate.marginBottom }}>{dateLabel}</div>}
+        {/* Reads as part of the invitation, not a control — no label, no link. */}
+        {venueValue && <div style={S.heroVenue}>at {venueValue}</div>}
         <button style={{ ...S.countdownPill, border: "none", cursor: "pointer" }} onClick={openDatePicker}>
           {countdown}
         </button>
@@ -4577,10 +4579,13 @@ const S = {
   setCoverBtn: { position: "absolute", bottom: 5, left: 5, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#fff", background: "rgba(58,46,44,0.6)", border: "none", padding: "3px 7px", borderRadius: 6, cursor: "pointer" },
   heroNames: { fontFamily: "'Fraunces', serif", fontSize: "clamp(36px, 11vw, 56px)", fontWeight: 600, fontStyle: "italic", color: "#6b4a45", margin: "8px 0 10px", lineHeight: 1.05 },
   heroDate: { fontSize: 15, color: "#b58e87", marginBottom: 16 },
+  heroVenue: { fontSize: 15, color: "#b58e87", marginBottom: 16 },
   countdownPill: { display: "inline-block", background: "linear-gradient(90deg,#d9a7a0,#c98b94)", color: "#fff", fontWeight: 600, fontSize: 15, padding: "9px 22px", borderRadius: 99, boxShadow: "0 8px 24px -10px rgba(201,139,148,0.7)" },
   profileGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 12 },
   visionInput: { width: "100%", fontSize: 15, padding: "11px 12px", borderRadius: 10, background: "#fbf6f3", color: "#3a2e2c", border: "1px solid #f0e2dd", marginTop: 5, fontFamily: "'Outfit', sans-serif", resize: "vertical" },
-  summaryGrid: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 },
+  // Same 24px gap the white sections leave below themselves, so the cards don't
+  // sit flush against "Our details".
+  summaryGrid: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12, marginBottom: 24 },
   summaryCard: { background: "#fff", borderRadius: 16, border: "1px solid #f0e2dd", padding: 18, textAlign: "left", display: "flex", flexDirection: "column", gap: 4, boxShadow: "0 6px 24px -18px rgba(150,100,95,0.5)", cursor: "pointer" },
   summaryTop: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 },
   summaryLabel: { fontSize: 13, textTransform: "uppercase", letterSpacing: "0.06em", color: "#b58e87", fontWeight: 500 },
