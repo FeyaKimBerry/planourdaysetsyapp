@@ -4474,8 +4474,11 @@ const S = {
   nextUpWhen: { fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" },
   // Arch-topped swatches — the shape wedding stationery uses — with the code
   // sitting quietly underneath rather than printed across the colour.
-  paletteRow: { display: "flex", flexWrap: "wrap", gap: 10 },
-  swatchWrap: { position: "relative", display: "flex", flexDirection: "column", alignItems: "center", flex: "1 1 74px", minWidth: 74, maxWidth: 120 },
+  // A grid, not wrapping flex: flex stretches whatever is on the last row, so a
+  // row of two came out wider than a row of three. Equal tracks keep every
+  // swatch the same size however they wrap.
+  paletteRow: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))", gap: 10 },
+  swatchWrap: { position: "relative", display: "flex", flexDirection: "column", alignItems: "center" },
   swatch: { width: "100%", height: 92, padding: 0, border: "1px solid rgba(107,74,69,0.12)", borderRadius: "999px 999px 10px 10px" },
   swatchHex: { fontSize: 10, letterSpacing: "0.09em", color: "#b58e87", marginTop: 7, fontFamily: "'Outfit', sans-serif" },
   swatchActive: { outline: "2px solid #c98b94", outlineOffset: 2 },
@@ -4497,7 +4500,7 @@ const S = {
   pickerDone: { background: "#c98b94", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 14, fontWeight: 600, cursor: "pointer", flexShrink: 0 },
   pickerHint: { fontSize: 11, color: "#c4aaa4", marginTop: 8 },
   swatchRemove: { position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: "#fff", border: "1px solid #f0e2dd", color: "#b07a72", fontSize: 13, lineHeight: 1, cursor: "pointer", padding: 0 },
-  swatchAdd: { flex: "1 1 74px", minWidth: 74, maxWidth: 120, height: 92, borderRadius: "999px 999px 10px 10px", border: "1.5px dashed #d9b8b2", background: "transparent", color: "#b58e87", fontSize: 22, lineHeight: 1, cursor: "pointer", alignSelf: "flex-start" },
+  swatchAdd: { width: "100%", height: 92, borderRadius: "999px 999px 10px 10px", border: "1.5px dashed #d9b8b2", background: "transparent", color: "#b58e87", fontSize: 22, lineHeight: 1, cursor: "pointer", alignSelf: "start" },
   detailsHead: { display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer" },
   donutToggle: { display: "flex", justifyContent: "center", gap: 4, background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 99, padding: 3, width: "fit-content", margin: "4px auto 0" },
   donutToggleBtn: { background: "none", border: "none", borderRadius: 99, padding: "6px 16px", fontSize: 13, fontFamily: "inherit", color: "#b58e87", cursor: "pointer" },
