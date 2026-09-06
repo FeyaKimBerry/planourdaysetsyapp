@@ -105,6 +105,26 @@ const SUGGESTED_CATEGORIES = [
   "Contingency",
 ];
 
+/* ---------- the sync reminder's dismissal ---------- */
+
+// When they last closed the sync line. Per device, like the panel state — it's
+// a preference about this screen, not part of the plan.
+const SYNC_HUSH_KEY = "planourdays-sync-hushed";
+const SYNC_HUSH_DAYS = 30;
+
+function syncHushedUntil() {
+  try {
+    const t = Number(window.localStorage.getItem(SYNC_HUSH_KEY)) || 0;
+    return t + SYNC_HUSH_DAYS * 86400000;
+  } catch {
+    return 0;
+  }
+}
+
+function hushSync() {
+  try { window.localStorage.setItem(SYNC_HUSH_KEY, String(Date.now())); } catch {}
+}
+
 /* ---------- Home section open/closed, remembered per device ---------- */
 
 // Which Home sections the couple has folded away. Kept in localStorage rather
@@ -839,9 +859,9 @@ export default function WeddingPlanner() {
   const didMount = useRef(false);
   // Brief "Saved on this device" pill for local-only users, with a nudge to
   // turn on sync. Auto-hides; never overlaps the logo or the header buttons.
-  const [savedPill, setSavedPill] = useState(false);
-  const pillTimer = useRef(null);
-  useEffect(() => () => { if (pillTimer.current) clearTimeout(pillTimer.current); }, []);
+  // The sync reminder can be closed; it comes back on its own after a month.
+  const [syncHushedAt, setSyncHushedAt] = useState(() => syncHushedUntil());
+  const dismissSyncLine = () => { hushSync(); setSyncHushedAt(syncHushedUntil()); };
 
   const recordSync = useCallback(() => {
     const t = Date.now();
@@ -892,16 +912,7 @@ export default function WeddingPlanner() {
     setStorageOk(savedOk); // no-op re-render unless it changed
 
     if (!didMount.current) { didMount.current = true; return; }
-    if (!connected) {
-      // Local-only: confirm the edit landed on this device and point to sync.
-      // Rapid edits reset the timer, so typing shows one pill, not a flicker.
-      if (savedOk && intent === "local") {
-        setSavedPill(true);
-        if (pillTimer.current) clearTimeout(pillTimer.current);
-        pillTimer.current = setTimeout(() => setSavedPill(false), 4000);
-      }
-      return; // local-only intent never pushes
-    }
+    if (!connected) return; // local-only intent never pushes
 
     // The edit is now unsaved to Drive. Rapid edits coalesce: each
     // one resets the debounce timer, so only one push runs (~2.5s).
@@ -1056,6 +1067,20 @@ export default function WeddingPlanner() {
     );
   }
 
+  // What the reminder is currently saying, and whether it's a warning or just a
+  // nudge. Warnings — the plan isn't safe, or sync has broken — ignore a
+  // dismissal, because that's the difference between reminding and hiding.
+  const syncBadge = intent === "sync"
+    ? saveStateLabel({
+        ...(syncState === NEEDS_RECONNECT ? { ...saveState, inFlight: false, health: "error" } : saveState),
+        storageError: !storageOk,
+      })
+    : !storageOk
+      ? saveStateLabel({ storageError: true })
+      : { label: "Saved on this device", tone: "ok" };
+  const syncUrgent = syncBadge.tone === "error" || !storageOk || syncState === NEEDS_RECONNECT;
+  const showSyncLine = syncUrgent || Date.now() > syncHushedAt;
+
   const closeGuide = () => {
     localStorage.setItem(GUIDE_KEY, "1");
     setShowGuide(false);
@@ -1092,6 +1117,15 @@ export default function WeddingPlanner() {
 
       {tab !== "settings" && (
         <>
+          {/* With the reminder closed, sync lives here: out of the way, always
+              reachable, and still showing its state through the dot. */}
+          {!showSyncLine && (
+            <button style={S.syncBadge} onClick={goToSyncSettings} aria-label={`Sync — ${syncBadge.label}`}
+              title={syncBadge.label}>
+              <Icon name="cloud" size={19} color="#b07a72" />
+              <span style={{ ...S.syncBadgeDot, background: SAVE_TONE_COLOR[syncBadge.tone] || "#7a655f" }} />
+            </button>
+          )}
           <button style={S.helpBtn} onClick={() => setShowGuide(true)} aria-label="Help">
             <span style={{ fontSize: 15, fontWeight: 700, color: "#b07a72", lineHeight: 1 }}>?</span>
           </button>
@@ -1110,45 +1144,46 @@ export default function WeddingPlanner() {
         <ReconnectBanner busy={reconnecting} onReconnect={handleReconnect} />
       )}
 
-      {savedPill && (
-        <button style={S.savedPill} onClick={goToSyncSettings}>
-          <span style={S.savedPillDot} />
-          <span style={S.savedPillLabel}>Saved on this device</span>
-          <span style={S.savedPillCta}>Sync across devices ›</span>
-        </button>
-      )}
-
       <div style={S.scroll}>
-        {/* Sync status sits above the content, under the logo row, so it's the
-            first thing seen — and never overlaps the logo or header buttons. */}
-        <div style={S.syncLine}>
-          {(() => {
-            const content =
-              intent === "sync" ? (
-                <SaveIndicator
-                  saveState={{
-                    ...(syncState === NEEDS_RECONNECT ? { ...saveState, inFlight: false, health: "error" } : saveState),
-                    storageError: !storageOk,
-                  }}
-                />
-              ) : !storageOk ? (
-                <SaveIndicator saveState={{ storageError: true }} />
-              ) : PERSISTS ? (
-                // Local-only: the edit is safely on this device, so green.
-                <StatusDot tone="ok">Saved on this device · sign in to sync across devices</StatusDot>
-              ) : null;
-            // Preview mode: nothing actionable, leave as plain text.
-            if (content === null) return "Preview mode · data won't persist here, but saving works in the deployed app";
-            // Already in Settings: no point navigating there again.
-            if (tab === "settings") return content;
-            return (
-              <button style={S.footerBtn} onClick={goToSyncSettings} aria-label="View sync details in settings">
-                {content}
-                <span style={S.footerChevron}>›</span>
-              </button>
-            );
-          })()}
-        </div>
+        {/* Sync status sits above the content, under the logo row. It can be
+            closed — then it lives as the badge in the header — but anything
+            actually wrong ignores that and shows anyway. */}
+        {showSyncLine && (
+          <div style={S.syncLine}>
+            {(() => {
+              const content =
+                intent === "sync" ? (
+                  <SaveIndicator
+                    saveState={{
+                      ...(syncState === NEEDS_RECONNECT ? { ...saveState, inFlight: false, health: "error" } : saveState),
+                      storageError: !storageOk,
+                    }}
+                  />
+                ) : !storageOk ? (
+                  <SaveIndicator saveState={{ storageError: true }} />
+                ) : PERSISTS ? (
+                  // Local-only: the edit is safely on this device, so green.
+                  <StatusDot tone="ok">Saved on this device · sign in to sync across devices</StatusDot>
+                ) : null;
+              // Preview mode: nothing actionable, leave as plain text.
+              if (content === null) return "Preview mode · data won't persist here, but saving works in the deployed app";
+              // Already in Settings: no point navigating there again.
+              if (tab === "settings") return content;
+              return (
+                <>
+                  <button style={S.footerBtn} onClick={goToSyncSettings} aria-label="View sync details in settings">
+                    {content}
+                    <span style={S.footerChevron}>›</span>
+                  </button>
+                  {!syncUrgent && (
+                    <button style={S.syncClose} onClick={dismissSyncLine}
+                      aria-label="Hide this reminder">×</button>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        )}
 
         {tab === "home" && <HomeView state={state} update={update} go={goTab} />}
         {tab === "budget" && <BudgetView state={state} update={update} go={goTab} />}
@@ -1185,6 +1220,7 @@ function Icon({ name, size = 22, color = "currentColor" }) {
     guest: <><path d="M12 20.5s-7-4.3-9.2-9C1.4 8.6 2.6 5.5 5.6 5c1.9-.3 3.6.8 4.4 2.3.8-1.5 2.5-2.6 4.4-2.3 3 .5 4.2 3.6 2.8 6.5-2.2 4.7-9.2 9-9.2 9Z" /></>,
     gear: <><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M19.43 12.98c.04-.32.07-.65.07-.98 0-.33-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.49.49 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.04.32-.07.65-.07.98 0 .33.03.66.07.98L2.46 14.63a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.08.42.45.42.49.42h4c.24 0 .45-.17.49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.49.49 0 0 0 .61-.22l2-3.46a.49.49 0 0 0-.12-.64l-2.11-1.65Z" /></>,
     back: <><path d="M15 18l-6-6 6-6" /></>,
+    cloud: <><path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97 6 6 0 0 0-11.66-1.2A4 4 0 0 0 6.5 19h11Z" /></>,
     venue: <><path d="M3 21h18M4 21V9l8-6 8 6v12M9 21v-6h6v6" /></>,
     seating: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="3.5" r="1.6" /><circle cx="12" cy="20.5" r="1.6" /><circle cx="3.5" cy="12" r="1.6" /><circle cx="20.5" cy="12" r="1.6" /></>,
     trash: <><path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" /></>,
@@ -4440,7 +4476,11 @@ const S = {
   addTaskInput: { flex: 1, fontSize: 15, padding: "11px 12px", borderRadius: 10, background: "#fbf2ef", color: "#3a2e2c", border: "1px dashed #e3c4bd" },
   expAdd: { width: 40, height: 40, borderRadius: "50%", background: "#c98b94", color: "#fff", fontSize: 20, lineHeight: 1, flexShrink: 0, transition: "opacity 0.2s" },
 
-  syncLine: { textAlign: "center", marginBottom: 16, fontSize: 12, color: "#c4aaa4" },
+  syncLine: { display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 16, fontSize: 12, color: "#c4aaa4", textAlign: "center" },
+  syncClose: { background: "none", border: "none", color: "#c4aaa4", fontSize: 16, lineHeight: 1, padding: "2px 4px", cursor: "pointer", flexShrink: 0 },
+  // Sits with the ? and gear so a dismissed reminder still has a home.
+  syncBadge: { position: "absolute", top: 20, right: 108, width: 36, height: 36, borderRadius: 12, background: "linear-gradient(135deg,#f9ede9,#f4e0da)", border: "1px solid #eac8bf", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, boxShadow: "0 4px 14px -6px rgba(180,110,100,0.45)", cursor: "pointer" },
+  syncBadgeDot: { position: "absolute", top: 5, right: 5, width: 8, height: 8, borderRadius: "50%", border: "1.5px solid #fdf6f3" },
   catVendorHint: { fontSize: 12, color: "#b58e87", marginTop: 4 },
   catVendorBox: { background: "#fbf6f3", border: "1px solid #f0e2dd", borderRadius: 12, padding: "12px 12px 10px", marginTop: 14, display: "flex", flexDirection: "column", gap: 2 },
   catVendorRow: { display: "flex", alignItems: "center", gap: 8, width: "100%", background: "none", border: "none", padding: "8px 2px", fontSize: 14, fontFamily: "inherit", color: "#3a2e2c", cursor: "pointer", textAlign: "left" },
@@ -4546,8 +4586,10 @@ const S = {
 
   /* settings */
   gearBtn: { position: "absolute", top: 20, right: 16, width: 36, height: 36, borderRadius: 12, background: "linear-gradient(135deg,#f9ede9,#f4e0da)", border: "1px solid #eac8bf", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, boxShadow: "0 4px 14px -6px rgba(180,110,100,0.45)" },
-  appLogoBtn: { position: "absolute", top: 18, left: 16, height: 42, display: "flex", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", zIndex: 5 },
-  appLogoImg: { height: 38, width: "auto", display: "block" },
+  // Capped so the wordmark can never slide under the header buttons on a
+  // narrow phone; it scales down instead.
+  appLogoBtn: { position: "absolute", top: 18, left: 16, height: 42, maxWidth: "calc(100% - 168px)", display: "flex", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", zIndex: 5 },
+  appLogoImg: { maxHeight: 38, maxWidth: "100%", width: "auto", height: "auto", display: "block" },
   settingsHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, paddingTop: 4 },
   backBtn: { width: 36, height: 36, borderRadius: "50%", background: "#fff", border: "1px solid #f0e2dd", display: "flex", alignItems: "center", justifyContent: "center" },
   settingsTitle: { fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 600, fontStyle: "italic", color: "#6b4a45", margin: 0 },
@@ -4596,10 +4638,6 @@ const S = {
   guestChip: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 14, border: "1.5px solid #ead7d1", borderRadius: 99, padding: "8px 12px", cursor: "pointer", userSelect: "none", transition: "background 0.12s, color 0.12s, border-color 0.12s" },
   // left/right + margin auto (not left:50%) so the pill can use the full width
   // and stays on one line on a phone.
-  savedPill: { position: "fixed", left: 12, right: 12, bottom: 92, margin: "0 auto", width: "fit-content", maxWidth: "calc(100% - 24px)", display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #f0e2dd", borderRadius: 99, padding: "8px 14px", fontSize: 13, fontFamily: "inherit", color: "#6b4a45", cursor: "pointer", zIndex: 40, boxShadow: "0 10px 26px -12px rgba(107,74,69,0.5)" },
-  savedPillDot: { width: 7, height: 7, borderRadius: "50%", background: "#5c7a59", flex: "none" },
-  savedPillLabel: { whiteSpace: "nowrap" },
-  savedPillCta: { color: "#c98b94", fontWeight: 600, whiteSpace: "nowrap" },
   seatingBanner: { position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 92, background: "#6b4a45", color: "#fff", fontSize: 14, padding: "12px 18px", borderRadius: 99, display: "flex", alignItems: "center", gap: 14, zIndex: 50, boxShadow: "0 12px 32px -12px rgba(80,50,45,0.7)", maxWidth: "92%" },
   seatingCancel: { background: "rgba(255,255,255,0.18)", color: "#fff", fontSize: 13, padding: "5px 12px", borderRadius: 99, flexShrink: 0 },
 
