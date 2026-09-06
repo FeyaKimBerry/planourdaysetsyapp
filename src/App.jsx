@@ -4578,7 +4578,8 @@ const S = {
   bar: { height: 12, background: "#f0e2dd", borderRadius: 99, overflow: "hidden", marginBottom: 16 },
   barFill: { height: "100%", borderRadius: 99, transition: "width 0.4s ease" },
 
-  stats: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 },
+  // Set apart from the donut legend above it, so the two don't read as one block.
+  stats: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginTop: 22 },
   statBox: { textAlign: "center" },
   statLabel: { fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#b58e87", marginBottom: 4 },
   statValue: { fontFamily: "'Fraunces', serif", fontSize: "clamp(18px, 5vw, 22px)", fontWeight: 600 },
